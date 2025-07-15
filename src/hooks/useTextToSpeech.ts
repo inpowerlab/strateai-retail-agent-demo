@@ -20,6 +20,8 @@ interface UseTextToSpeechReturn {
   isInitializing: boolean;
   lastSpokenMessage: string | null;
   currentVoice: string | null;
+  canAutoPlay: boolean;
+  requestPlayPermission: () => Promise<boolean>;
 }
 
 export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextToSpeechReturn => {
@@ -36,11 +38,14 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
   const [isInitializing, setIsInitializing] = useState(false);
   const [lastSpokenMessage, setLastSpokenMessage] = useState<string | null>(null);
   const [currentVoice, setCurrentVoice] = useState<string | null>(null);
+  const [canAutoPlay, setCanAutoPlay] = useState(false);
+  
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const currentMessageIdRef = useRef<string | null>(null);
   const spokenMessagesRef = useRef<Set<string>>(new Set());
   const isProcessingRef = useRef<boolean>(false);
   const lastTextRef = useRef<string>('');
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Check if Speech Synthesis is supported
   const isSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -60,19 +65,23 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         v.name.toLowerCase().includes('monica') ||
         v.name.toLowerCase().includes('elena') ||
         v.name.toLowerCase().includes('conchita') ||
-        v.name.toLowerCase().includes('paulina')
+        v.name.toLowerCase().includes('paulina') ||
+        v.name.toLowerCase().includes('esperanza') ||
+        v.name.toLowerCase().includes('carmen')
       ),
       // Any female Spanish voice
       (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && (
         v.name.toLowerCase().includes('female') ||
         v.name.toLowerCase().includes('mujer') ||
-        v.name.toLowerCase().includes('femenina')
+        v.name.toLowerCase().includes('femenina') ||
+        v.name.toLowerCase().includes('woman')
       ),
       // High quality Spanish voices (likely female by default)
       (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && (
         v.name.toLowerCase().includes('premium') ||
         v.name.toLowerCase().includes('natural') ||
-        v.name.toLowerCase().includes('enhanced')
+        v.name.toLowerCase().includes('enhanced') ||
+        v.name.toLowerCase().includes('neural')
       ),
       // Any es-ES voice
       (v: SpeechSynthesisVoice) => v.lang.startsWith('es-ES'),
@@ -85,15 +94,88 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     for (const priority of femaleVoicePriorities) {
       const voice = voices.find(priority);
       if (voice) {
-        console.log('Selected Spanish voice:', voice.name, voice.lang);
+        console.log('🔊 Selected Spanish voice:', voice.name, voice.lang);
         setCurrentVoice(voice.name);
         return voice;
       }
     }
 
-    console.log('No Spanish voice found, using default');
+    console.log('⚠️ No Spanish voice found, using default');
     setCurrentVoice('Default');
     return null;
+  }, [isSupported]);
+
+  // Check if we can auto-play audio (usually after user gesture)
+  const checkAutoPlayCapability = useCallback(async (): Promise<boolean> => {
+    if (!isSupported) return false;
+    
+    try {
+      // Check if we have an audio context that's running
+      if (audioContextRef.current && audioContextRef.current.state === 'running') {
+        console.log('✅ Audio context is running, can auto-play');
+        return true;
+      }
+      
+      // Try to create and use an audio context
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContext) {
+        const ctx = new AudioContext();
+        if (ctx.state === 'running') {
+          audioContextRef.current = ctx;
+          console.log('✅ Audio context created and running');
+          return true;
+        } else {
+          await ctx.resume();
+          if (ctx.state === 'running') {
+            audioContextRef.current = ctx;
+            console.log('✅ Audio context resumed');
+            return true;
+          }
+        }
+      }
+      
+      console.log('⚠️ Audio context not available or suspended');
+      return false;
+    } catch (error) {
+      console.log('❌ Cannot determine auto-play capability:', error);
+      return false;
+    }
+  }, [isSupported]);
+
+  // Request permission to play audio (to be called after user gesture)
+  const requestPlayPermission = useCallback(async (): Promise<boolean> => {
+    if (!isSupported) return false;
+
+    try {
+      console.log('🔊 Requesting audio playback permission...');
+      
+      // Create audio context from user gesture
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContext) {
+        const audioContext = new AudioContext();
+        
+        // Resume if suspended
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+        
+        if (audioContext.state === 'running') {
+          audioContextRef.current = audioContext;
+          setCanAutoPlay(true);
+          console.log('✅ Audio playback permission granted');
+          return true;
+        }
+      }
+      
+      // Fallback: just set permission granted
+      setCanAutoPlay(true);
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Failed to request audio permission:', error);
+      setCanAutoPlay(false);
+      return false;
+    }
   }, [isSupported]);
 
   // Clean and prepare text for natural speech
@@ -121,13 +203,13 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
 
     // Prevent re-processing if already processing
     if (isProcessingRef.current) {
-      console.log('TTS: Already processing, skipping');
+      console.log('🔄 TTS: Already processing, skipping');
       return;
     }
 
     // Check if message was already spoken (debounce protection)
     if (messageId && spokenMessagesRef.current.has(messageId)) {
-      console.log('TTS: Message already spoken, skipping:', messageId);
+      console.log('🔄 TTS: Message already spoken, skipping:', messageId);
       return;
     }
 
@@ -167,7 +249,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         }
 
         utterance.onstart = () => {
-          console.log('TTS started for message:', messageId);
+          console.log('🗣️ TTS started for message:', messageId);
           setIsSpeaking(true);
           setError(null);
           setIsInitializing(false);
@@ -180,7 +262,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         };
 
         utterance.onend = () => {
-          console.log('TTS ended for message:', messageId);
+          console.log('✅ TTS ended for message:', messageId);
           setIsSpeaking(false);
           setIsInitializing(false);
           isProcessingRef.current = false;
@@ -188,12 +270,13 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         };
 
         utterance.onerror = (event) => {
-          console.error('TTS error:', event.error);
+          console.error('❌ TTS error:', event.error);
           let errorMessage = 'Error en la síntesis de voz';
           
           switch (event.error) {
             case 'not-allowed':
-              errorMessage = 'Síntesis de voz no permitida en este contexto';
+              errorMessage = 'Síntesis de voz no permitida. Toca para reproducir manualmente.';
+              setCanAutoPlay(false);
               break;
             case 'network':
               errorMessage = 'Error de red al reproducir voz';
@@ -201,11 +284,17 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
             case 'synthesis-unavailable':
               errorMessage = 'Síntesis de voz no disponible';
               break;
+            case 'interrupted':
+              // Don't show error for intentional interruptions
+              errorMessage = '';
+              break;
             default:
               errorMessage = `Error de síntesis: ${event.error}`;
           }
           
-          setError(errorMessage);
+          if (errorMessage) {
+            setError(errorMessage);
+          }
           setIsSpeaking(false);
           setIsInitializing(false);
           isProcessingRef.current = false;
@@ -217,7 +306,16 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         // Speak with small delay for better browser compatibility
         setTimeout(() => {
           if (utteranceRef.current === utterance && !window.speechSynthesis.speaking) {
-            window.speechSynthesis.speak(utterance);
+            try {
+              window.speechSynthesis.speak(utterance);
+              console.log('🎵 TTS playback started');
+            } catch (error) {
+              console.error('❌ Failed to start TTS:', error);
+              setError('No se pudo reproducir el audio. Toca para reproducir manualmente.');
+              setCanAutoPlay(false);
+              isProcessingRef.current = false;
+              setIsInitializing(false);
+            }
           } else {
             isProcessingRef.current = false;
             setIsInitializing(false);
@@ -245,8 +343,8 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
       }
 
     } catch (error) {
-      console.error('Error in text-to-speech:', error);
-      setError('No se pudo reproducir el audio');
+      console.error('❌ Error in text-to-speech:', error);
+      setError('No se pudo reproducir el audio. Toca para reproducir manualmente.');
       setIsSpeaking(false);
       setIsInitializing(false);
       isProcessingRef.current = false;
@@ -256,19 +354,21 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
   const stop = useCallback(() => {
     if (isSupported) {
       try {
+        console.log('🛑 Stopping TTS playback');
         window.speechSynthesis.cancel();
         setIsSpeaking(false);
         setIsInitializing(false);
         isProcessingRef.current = false;
         currentMessageIdRef.current = null;
       } catch (error) {
-        console.error('Error stopping TTS:', error);
+        console.error('❌ Error stopping TTS:', error);
       }
     }
   }, [isSupported]);
 
   const replay = useCallback(() => {
     if (lastTextRef.current && !isSpeaking && !isInitializing) {
+      console.log('🔄 Replaying last message');
       // Clear the spoken messages cache for the last message to allow replay
       if (currentMessageIdRef.current) {
         spokenMessagesRef.current.delete(currentMessageIdRef.current);
@@ -282,17 +382,33 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     if (isSpeaking) {
       stop();
     }
-  }, [isSpeaking, stop]);
+    console.log('🔇 TTS mute toggled:', !isMuted);
+  }, [isSpeaking, stop, isMuted]);
+
+  // Check auto-play capability on mount
+  useEffect(() => {
+    checkAutoPlayCapability().then(setCanAutoPlay);
+  }, [checkAutoPlayCapability]);
 
   // Clean up spoken messages periodically to prevent memory leak
   useEffect(() => {
     const cleanup = setInterval(() => {
       if (spokenMessagesRef.current.size > 100) {
         spokenMessagesRef.current.clear();
+        console.log('🧹 Cleaned up TTS message cache');
       }
     }, 60000); // Clean every minute
 
     return () => clearInterval(cleanup);
+  }, []);
+
+  // Cleanup audio context on unmount
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
   }, []);
 
   return {
@@ -306,6 +422,8 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     toggleMute,
     isInitializing,
     lastSpokenMessage,
-    currentVoice
+    currentVoice,
+    canAutoPlay,
+    requestPlayPermission
   };
 };
