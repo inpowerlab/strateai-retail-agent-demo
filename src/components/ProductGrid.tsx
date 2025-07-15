@@ -1,0 +1,118 @@
+
+import React from 'react';
+import { ProductCard } from './ProductCard';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle, Package } from 'lucide-react';
+import { useProducts, useCategories } from '@/hooks/useProducts';
+import { ProductFilters } from '@/types/database';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+
+interface ProductGridProps {
+  filters?: ProductFilters;
+  onFiltersChange?: (filters: ProductFilters) => void;
+}
+
+export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChange }) => {
+  const { data: products, isLoading, error } = useProducts(filters);
+  const { data: categories } = useCategories();
+
+  const handleCategoryChange = (categoria: string) => {
+    onFiltersChange?.({
+      ...filters,
+      categoria: categoria === 'all' ? undefined : categoria,
+    });
+  };
+
+  const clearFilters = () => {
+    onFiltersChange?.({});
+  };
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Error al cargar los productos. Por favor, intenta de nuevo.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Filters Header */}
+      <div className="p-4 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+            <h2 className="text-xl font-semibold">Productos</h2>
+            {products && (
+              <span className="text-sm text-muted-foreground">
+                {products.length} productos encontrados
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2 items-center">
+            <Select
+              value={filters?.categoria || 'all'}
+              onValueChange={handleCategoryChange}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las categorías</SelectItem>
+                {categories?.map((categoria) => (
+                  <SelectItem key={categoria} value={categoria}>
+                    {categoria}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {(filters?.categoria || filters?.searchTerm) && (
+              <Button variant="outline" size="sm" onClick={clearFilters}>
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Products Grid */}
+      <div className="flex-1 overflow-auto p-4">
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="space-y-3">
+                <Skeleton className="aspect-square w-full" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-8 w-1/3" />
+              </div>
+            ))}
+          </div>
+        ) : products && products.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {products.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-64 text-center">
+            <Package className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No se encontraron productos</h3>
+            <p className="text-muted-foreground mb-4">
+              Intenta ajustar los filtros de búsqueda
+            </p>
+            <Button variant="outline" onClick={clearFilters}>
+              Ver todos los productos
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

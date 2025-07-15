@@ -14,7 +14,89 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      conversaciones: {
+        Row: {
+          id: string
+          session_id: string
+          started_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          started_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          started_at?: string
+        }
+        Relationships: []
+      }
+      mensajes: {
+        Row: {
+          content: string
+          conversacion_id: string | null
+          id: string
+          sender: string
+          timestamp: string
+        }
+        Insert: {
+          content: string
+          conversacion_id?: string | null
+          id?: string
+          sender: string
+          timestamp?: string
+        }
+        Update: {
+          content?: string
+          conversacion_id?: string | null
+          id?: string
+          sender?: string
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mensajes_conversacion_id_fkey"
+            columns: ["conversacion_id"]
+            isOneToOne: false
+            referencedRelation: "conversaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      productos: {
+        Row: {
+          cantidad_disponible: number
+          categoria: string
+          created_at: string
+          descripcion: string
+          id: string
+          imagen_url: string
+          nombre: string
+          precio: number
+        }
+        Insert: {
+          cantidad_disponible?: number
+          categoria: string
+          created_at?: string
+          descripcion: string
+          id?: string
+          imagen_url: string
+          nombre: string
+          precio: number
+        }
+        Update: {
+          cantidad_disponible?: number
+          categoria?: string
+          created_at?: string
+          descripcion?: string
+          id?: string
+          imagen_url?: string
+          nombre?: string
+          precio?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
