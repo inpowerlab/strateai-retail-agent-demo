@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { MessageSquare, Send, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Mic, MicOff } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
+import { VoiceIndicator } from './VoiceIndicator';
 import { useChat } from '@/hooks/useChat';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
@@ -42,10 +43,13 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     error: ttsError,
     speak,
     stop: stopSpeaking,
+    replay: replayLastMessage,
     isSupported: ttsSupported,
     isMuted,
     toggleMute,
-    isInitializing: ttsInitializing
+    isInitializing: ttsInitializing,
+    lastSpokenMessage,
+    currentVoice
   } = useTextToSpeech();
 
   useEffect(() => {
@@ -148,6 +152,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
           <Button
             size="lg"
             className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg lg:hidden"
+            aria-label="Abrir chat"
           >
             <MessageSquare className="h-6 w-6" />
           </Button>
@@ -165,28 +170,27 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                   <SheetDescription className="text-left">
                     {messages.length === 0 
                       ? 'Listo para ayudarte' 
-                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • Integrado con OpenAI`}
+                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${currentVoice || 'Voz predeterminada'}`}
                   </SheetDescription>
                 </div>
               </div>
-              {/* Voice Controls */}
-              <div className="flex items-center gap-2">
-                {ttsSupported && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={toggleMute}
-                    className="h-8 w-8 p-0"
-                    title={isMuted ? 'Activar voz' : 'Silenciar voz'}
-                  >
-                    {isMuted ? (
-                      <VolumeX className="h-4 w-4" />
-                    ) : (
-                      <Volume2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
-              </div>
+            </div>
+            
+            {/* Voice Indicator for Mobile */}
+            <div className="mt-2">
+              <VoiceIndicator
+                isListening={isListening}
+                isSpeaking={isSpeaking}
+                speechInitializing={speechInitializing}
+                ttsInitializing={ttsInitializing}
+                speechSupported={speechSupported}
+                ttsSupported={ttsSupported}
+                isMuted={isMuted}
+                onStopSpeaking={stopSpeaking}
+                onReplay={replayLastMessage}
+                onToggleMute={toggleMute}
+                className="justify-start"
+              />
             </div>
           </SheetHeader>
 
@@ -235,28 +239,11 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
           </ScrollArea>
 
           {/* Voice/TTS Status and Error Messages */}
-          {(speechError || ttsError || isListening || speechInitializing || isSpeaking || ttsInitializing) && (
-            <div className="px-4 py-2 bg-muted border-t">
-              {isListening && (
-                <p className="text-xs text-blue-700 animate-pulse">
-                  🎤 Escuchando... Habla ahora
-                </p>
-              )}
-              {speechInitializing && (
-                <p className="text-xs text-blue-700">
-                  🎤 Iniciando micrófono...
-                </p>
-              )}
-              {(isSpeaking || ttsInitializing) && (
-                <p className="text-xs text-green-700">
-                  🔊 Reproduciendo respuesta...
-                </p>
-              )}
-              {(speechError || ttsError) && (
-                <p className="text-xs text-red-700">
-                  ❌ {speechError || ttsError}
-                </p>
-              )}
+          {(speechError || ttsError) && (
+            <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
+              <p className="text-xs text-destructive">
+                ❌ {speechError || ttsError}
+              </p>
             </div>
           )}
 
@@ -284,6 +271,11 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                       ? 'Parar grabación' 
                       : 'Iniciar grabación de voz'
                   }
+                  aria-label={
+                    isListening || speechInitializing 
+                      ? 'Parar grabación de voz' 
+                      : 'Iniciar grabación de voz'
+                  }
                 >
                   {(isListening || speechInitializing) ? (
                     <MicOff className="h-4 w-4" />
@@ -296,6 +288,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 type="submit" 
                 disabled={!inputValue.trim() || isSending || isListening || speechInitializing}
                 size="icon"
+                aria-label="Enviar mensaje"
               >
                 {isSending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -305,7 +298,9 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
               </Button>
             </form>
             <p className="text-xs text-muted-foreground mt-2">
-              {speechSupported ? 'Voz disponible' : 'Solo texto'} • Integrado con OpenAI
+              {speechSupported ? 'Voz disponible' : 'Solo texto'} • 
+              {ttsSupported && lastSpokenMessage && ' Última respuesta disponible para repetir • '}
+              Integrado con OpenAI
             </p>
           </div>
         </SheetContent>

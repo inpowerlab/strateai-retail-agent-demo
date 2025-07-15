@@ -13,10 +13,13 @@ interface UseTextToSpeechReturn {
   error: string | null;
   speak: (text: string, messageId?: string) => void;
   stop: () => void;
+  replay: () => void;
   isSupported: boolean;
   isMuted: boolean;
   toggleMute: () => void;
   isInitializing: boolean;
+  lastSpokenMessage: string | null;
+  currentVoice: string | null;
 }
 
 export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextToSpeechReturn => {
@@ -31,53 +34,82 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
   const [error, setError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [lastSpokenMessage, setLastSpokenMessage] = useState<string | null>(null);
+  const [currentVoice, setCurrentVoice] = useState<string | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const currentMessageIdRef = useRef<string | null>(null);
   const spokenMessagesRef = useRef<Set<string>>(new Set());
   const isProcessingRef = useRef<boolean>(false);
+  const lastTextRef = useRef<string>('');
 
   // Check if Speech Synthesis is supported
   const isSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
-  // Get best Spanish voice available
+  // Enhanced Spanish female voice selection with priority ranking
   const getBestSpanishVoice = useCallback(() => {
     if (!isSupported) return null;
     
     const voices = window.speechSynthesis.getVoices();
     if (voices.length === 0) return null;
 
-    // Priority order for Spanish voices
-    const voicePriorities = [
-      // Female Spanish voices (preferred)
-      (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && v.name.toLowerCase().includes('female'),
-      (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && (v.name.toLowerCase().includes('monica') || v.name.toLowerCase().includes('elena')),
-      (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && v.name.toLowerCase().includes('spanish'),
-      // Any Spanish voice
+    // Priority order for natural female Spanish voices
+    const femaleVoicePriorities = [
+      // Primary female Spanish voices
+      (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && (
+        v.name.toLowerCase().includes('mónica') ||
+        v.name.toLowerCase().includes('monica') ||
+        v.name.toLowerCase().includes('elena') ||
+        v.name.toLowerCase().includes('conchita') ||
+        v.name.toLowerCase().includes('paulina')
+      ),
+      // Any female Spanish voice
+      (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && (
+        v.name.toLowerCase().includes('female') ||
+        v.name.toLowerCase().includes('mujer') ||
+        v.name.toLowerCase().includes('femenina')
+      ),
+      // High quality Spanish voices (likely female by default)
+      (v: SpeechSynthesisVoice) => v.lang === 'es-ES' && (
+        v.name.toLowerCase().includes('premium') ||
+        v.name.toLowerCase().includes('natural') ||
+        v.name.toLowerCase().includes('enhanced')
+      ),
+      // Any es-ES voice
       (v: SpeechSynthesisVoice) => v.lang.startsWith('es-ES'),
+      // Any Spanish voice
       (v: SpeechSynthesisVoice) => v.lang.startsWith('es'),
+      // Spanish in name
       (v: SpeechSynthesisVoice) => v.name.toLowerCase().includes('spanish'),
     ];
 
-    for (const priority of voicePriorities) {
+    for (const priority of femaleVoicePriorities) {
       const voice = voices.find(priority);
       if (voice) {
         console.log('Selected Spanish voice:', voice.name, voice.lang);
+        setCurrentVoice(voice.name);
         return voice;
       }
     }
 
     console.log('No Spanish voice found, using default');
+    setCurrentVoice('Default');
     return null;
   }, [isSupported]);
 
-  // Clean and prepare text for speech
+  // Clean and prepare text for natural speech
   const cleanTextForSpeech = useCallback((text: string): string => {
     if (!text?.trim()) return '';
 
     return text
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
+      .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown  
+      .replace(/`(.*?)`/g, '$1') // Remove code markdown
+      .replace(/\[(.*?)\]\(.*?\)/g, '$1') // Remove links, keep text
+      .replace(/#{1,6}\s*/g, '') // Remove headers
       .replace(/\s+/g, ' ') // Multiple spaces to single
       .replace(/([.!?])\s*([.!?])/g, '$1 $2') // Fix punctuation spacing
       .replace(/\n+/g, '. ') // Convert line breaks to pauses
+      .replace(/\s*[•·]\s*/g, '. ') // Convert bullets to pauses
       .trim();
   }, []);
 
@@ -115,6 +147,10 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         setIsInitializing(false);
         return;
       }
+
+      // Store for replay functionality
+      lastTextRef.current = cleanText;
+      setLastSpokenMessage(cleanText);
 
       // Wait for voices to be loaded if needed
       const processVoice = () => {
@@ -231,6 +267,16 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     }
   }, [isSupported]);
 
+  const replay = useCallback(() => {
+    if (lastTextRef.current && !isSpeaking && !isInitializing) {
+      // Clear the spoken messages cache for the last message to allow replay
+      if (currentMessageIdRef.current) {
+        spokenMessagesRef.current.delete(currentMessageIdRef.current);
+      }
+      speak(lastTextRef.current);
+    }
+  }, [lastTextRef.current, isSpeaking, isInitializing, speak]);
+
   const toggleMute = useCallback(() => {
     setIsMuted(prev => !prev);
     if (isSpeaking) {
@@ -254,9 +300,12 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     error,
     speak,
     stop,
+    replay,
     isSupported,
     isMuted,
     toggleMute,
-    isInitializing
+    isInitializing,
+    lastSpokenMessage,
+    currentVoice
   };
 };
