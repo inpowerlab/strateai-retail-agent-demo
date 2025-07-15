@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +10,7 @@ import { useChat } from '@/hooks/useChat';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { ProductFilters } from '@/types/database';
+import { VoiceAuditDisplay } from './VoiceAuditDisplay';
 
 interface ChatInterfaceProps {
   onFiltersChange?: (filters: ProductFilters) => void;
@@ -30,6 +30,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const lastBotMessageIdRef = useRef<string | null>(null);
+  const [showVoiceAudit, setShowVoiceAudit] = useState(false);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
   
   const {
@@ -61,7 +62,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     currentVoice,
     canAutoPlay,
     requestPlayPermission,
-    isMobile
+    isMobile,
+    voiceAudit,
+    runVoiceAudit,
+    auditError
   } = useTextToSpeech();
 
   useEffect(() => {
@@ -189,7 +193,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
                 : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${currentVoice || 'Voz predeterminada'} • ${isMobile ? 'Móvil' : 'Escritorio'}`}
             </p>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowVoiceAudit(!showVoiceAudit)}
+            className="text-xs"
+          >
+            {voiceAudit?.femaleSpanishVoices ? 
+              `✅ ${voiceAudit.femaleSpanishVoices} Female ES` : 
+              '🔍 Voice Audit'
+            }
+          </Button>
         </div>
+        
+        {/* Voice Audit Display */}
+        {showVoiceAudit && (
+          <div className="mt-4 border rounded-lg p-3 bg-muted/50">
+            <VoiceAuditDisplay onAuditComplete={(summary) => console.log('Audit updated:', summary)} />
+          </div>
+        )}
         
         {/* Voice Indicator */}
         <div className="mt-2">
@@ -254,10 +276,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
       </ScrollArea>
 
       {/* Voice/TTS Status and Error Messages */}
-      {(speechError || ttsError) && (
+      {(speechError || ttsError || auditError) && (
         <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
           <p className="text-xs text-destructive">
-            ❌ {speechError || ttsError}
+            ❌ {speechError || ttsError || auditError}
           </p>
         </div>
       )}

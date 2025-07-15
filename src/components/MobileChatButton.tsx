@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +10,7 @@ import { useChat } from '@/hooks/useChat';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { ProductFilters } from '@/types/database';
+import { VoiceAuditDisplay } from './VoiceAuditDisplay';
 
 interface MobileChatButtonProps {
   onFiltersChange?: (filters: ProductFilters) => void;
@@ -36,6 +36,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const lastBotMessageIdRef = useRef<string | null>(null);
+  const [showVoiceAudit, setShowVoiceAudit] = useState(false);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
 
   const {
@@ -67,7 +68,10 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     currentVoice,
     canAutoPlay,
     requestPlayPermission,
-    isMobile
+    isMobile,
+    voiceAudit,
+    runVoiceAudit,
+    auditError
   } = useTextToSpeech();
 
   useEffect(() => {
@@ -206,7 +210,25 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                   </SheetDescription>
                 </div>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowVoiceAudit(!showVoiceAudit)}
+                className="text-xs shrink-0"
+              >
+                {voiceAudit?.femaleSpanishVoices ? 
+                  `✅ ${voiceAudit.femaleSpanishVoices}` : 
+                  '🔍'
+                }
+              </Button>
             </div>
+            
+            {/* Voice Audit Display for Mobile */}
+            {showVoiceAudit && (
+              <div className="mt-4 border rounded-lg p-3 bg-muted/50 max-h-60 overflow-y-auto">
+                <VoiceAuditDisplay onAuditComplete={(summary) => console.log('Mobile audit updated:', summary)} />
+              </div>
+            )}
             
             {/* Voice Indicator for Mobile */}
             <div className="mt-2">
@@ -271,10 +293,10 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
           </ScrollArea>
 
           {/* Voice/TTS Status and Error Messages */}
-          {(speechError || ttsError) && (
+          {(speechError || ttsError || auditError) && (
             <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
               <p className="text-xs text-destructive">
-                ❌ {speechError || ttsError}
+                ❌ {speechError || ttsError || auditError}
               </p>
             </div>
           )}

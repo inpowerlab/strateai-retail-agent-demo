@@ -1,5 +1,5 @@
-
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { VoiceAuditSummary, performVoiceAudit } from '@/utils/voiceAudit';
 
 interface UseTextToSpeechOptions {
   language?: string;
@@ -23,6 +23,9 @@ interface UseTextToSpeechReturn {
   canAutoPlay: boolean;
   requestPlayPermission: () => Promise<boolean>;
   isMobile: boolean;
+  voiceAudit: VoiceAuditSummary | null;
+  runVoiceAudit: () => Promise<VoiceAuditSummary>;
+  auditError: string | null;
 }
 
 export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextToSpeechReturn => {
@@ -40,6 +43,8 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
   const [lastSpokenMessage, setLastSpokenMessage] = useState<string | null>(null);
   const [currentVoice, setCurrentVoice] = useState<string | null>(null);
   const [canAutoPlay, setCanAutoPlay] = useState(false);
+  const [voiceAudit, setVoiceAudit] = useState<VoiceAuditSummary | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
   
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const currentMessageIdRef = useRef<string | null>(null);
@@ -423,10 +428,36 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     console.log('🔇 TTS mute toggled:', !isMuted);
   }, [isSpeaking, stop, isMuted]);
 
-  // Initialize on mount
+  // Run voice audit on initialization
+  const runVoiceAudit = useCallback(async (): Promise<VoiceAuditSummary> => {
+    try {
+      console.log('🔍 Running voice audit from useTextToSpeech...');
+      setAuditError(null);
+      const summary = await performVoiceAudit();
+      setVoiceAudit(summary);
+      return summary;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Voice audit failed';
+      setAuditError(errorMessage);
+      console.error('❌ Voice audit error in useTextToSpeech:', error);
+      throw error;
+    }
+  }, []);
+
+  // Initialize on mount with audit
   useEffect(() => {
-    initializeAudioContext();
-  }, [initializeAudioContext]);
+    const initializeWithAudit = async () => {
+      await initializeAudioContext();
+      // Run voice audit on initialization
+      try {
+        await runVoiceAudit();
+      } catch (error) {
+        console.warn('⚠️ Initial voice audit failed, continuing without audit data');
+      }
+    };
+    
+    initializeWithAudit();
+  }, [initializeAudioContext, runVoiceAudit]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -458,6 +489,9 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     currentVoice,
     canAutoPlay,
     requestPlayPermission,
-    isMobile
+    isMobile,
+    voiceAudit,
+    runVoiceAudit,
+    auditError
   };
 };
