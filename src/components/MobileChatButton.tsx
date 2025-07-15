@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,8 +49,8 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     isInitializing: speechInitializing,
     hasPermission: micPermission
   } = useSpeechToText({
-    maxRecordingTime: 30000, // 30 seconds
-    silenceTimeout: 4000     // 4 seconds of silence on mobile
+    maxRecordingTime: 30000,
+    silenceTimeout: 4000
   });
 
   const {
@@ -83,14 +84,14 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   }, [messages, isOpen]);
 
-  // Handle voice transcript with auto-send (mobile optimized)
+  // Enhanced mobile transcript handling
   useEffect(() => {
     if (transcript && transcript.length > 3 && isOpen) {
       console.log('📱 Processing mobile transcript:', transcript);
       setInputValue(transcript);
       resetTranscript();
       
-      // Auto-send with slightly longer delay for mobile
+      // Auto-send with mobile-optimized delay
       setTimeout(() => {
         if (transcript.trim()) {
           sendMessage({ content: transcript.trim(), sender: 'user' });
@@ -100,13 +101,12 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   }, [transcript, resetTranscript, sendMessage, isOpen]);
 
-  // Enhanced TTS auto-speak with mobile-optimized permission handling
+  // Enhanced mobile TTS auto-speak
   useEffect(() => {
     if (messages.length === 0 || isSending || !isOpen) return;
 
     const lastMessage = messages[messages.length - 1];
     
-    // Only process bot messages that haven't been spoken yet
     if (lastMessage && 
         lastMessage.sender === 'bot' && 
         lastMessage.id !== lastBotMessageIdRef.current &&
@@ -114,17 +114,15 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
         !isMuted && 
         lastMessage.content.length > 0) {
       
-      console.log('📱 New mobile bot message detected for TTS:', lastMessage.id);
-      
-      // Update the last spoken message reference
+      console.log('📱 New mobile bot message for TTS:', lastMessage.id);
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Mobile TTS handling - immediate if permission granted
+      // Mobile TTS - only play if we have active audio permission
       if (canAutoPlay) {
-        console.log('📱 Mobile auto-playing TTS response immediately');
+        console.log('📱 Mobile auto-playing TTS response');
         speak(lastMessage.content, lastMessage.id);
       } else {
-        console.log('📱 Mobile TTS waiting for user interaction');
+        console.log('📱 Mobile TTS requires manual trigger');
       }
     }
   }, [messages, speak, ttsSupported, isMuted, isOpen, isSending, canAutoPlay]);
@@ -155,18 +153,17 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
         stopSpeaking();
       }
       
-      // Request TTS permission when user taps mic (user gesture) - critical for mobile
+      // Request TTS permission when user taps mic (critical for mobile)
       if (!canAutoPlay) {
         await requestPlayPermission();
       }
       
-      // Start listening
       await startListening();
     }
   };
 
   const handleManualPlay = async () => {
-    // Request permission and play the last bot message - using safe fallback
+    // Request permission and play the last bot message
     const hasPermission = await requestPlayPermission();
     if (hasPermission && messages.length > 0) {
       const lastBotMessage = findLastBotMessage(messages);
@@ -176,7 +173,12 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   };
 
-  const handleStartConversation = () => {
+  const handleStartConversation = async () => {
+    // Request permission when starting conversation on mobile
+    if (!canAutoPlay) {
+      await requestPlayPermission();
+    }
+    
     const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
@@ -185,7 +187,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   const voiceButtonClass = (isListening || speechInitializing) ? 
     "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
 
-  // Enhanced manual play button logic for mobile
+  // Mobile-specific manual play button logic
   const shouldShowManualPlay = !canAutoPlay && messages.length > 0 && 
     messages[messages.length - 1]?.sender === 'bot' && !isSpeaking && !ttsInitializing;
 
