@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +23,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const lastBotMessageIdRef = useRef<string | null>(null);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
 
   const {
@@ -79,23 +79,31 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   }, [transcript, resetTranscript, sendMessage, isOpen]);
 
-  // Auto-speak bot messages when chat is open
+  // Enhanced TTS auto-speak with message ID-based triggering for mobile
   useEffect(() => {
+    if (messages.length === 0 || isSending || !isOpen) return;
+
     const lastMessage = messages[messages.length - 1];
+    
+    // Only process bot messages that haven't been spoken yet
     if (lastMessage && 
         lastMessage.sender === 'bot' && 
+        lastMessage.id !== lastBotMessageIdRef.current &&
         ttsSupported && 
         !isMuted && 
-        isOpen &&
-        !isSpeaking &&
         lastMessage.content.length > 0) {
       
-      console.log('Auto-speaking mobile bot message:', lastMessage.content);
+      console.log('New mobile bot message detected for TTS:', lastMessage.id, lastMessage.content.substring(0, 50));
+      
+      // Update the last spoken message reference
+      lastBotMessageIdRef.current = lastMessage.id;
+      
+      // Longer delay on mobile for better UX
       setTimeout(() => {
-        speak(lastMessage.content);
-      }, 1000); // Longer delay on mobile for better UX
+        speak(lastMessage.content, lastMessage.id);
+      }, 1000);
     }
-  }, [messages, speak, ttsSupported, isMuted, isOpen, isSpeaking]);
+  }, [messages, speak, ttsSupported, isMuted, isOpen, isSending]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();

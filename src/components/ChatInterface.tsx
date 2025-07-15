@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +17,7 @@ interface ChatInterfaceProps {
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange }) => {
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const lastBotMessageIdRef = useRef<string | null>(null);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
   
   const {
@@ -58,7 +58,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
 
   // Handle voice transcript with auto-send
   useEffect(() => {
-    if (transcript && transcript.length > 3) { // Only process substantial speech
+    if (transcript && transcript.length > 3) {
       console.log('Processing transcript:', transcript);
       setInputValue(transcript);
       resetTranscript();
@@ -67,29 +67,37 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
       setTimeout(() => {
         if (transcript.trim()) {
           sendMessage({ content: transcript.trim(), sender: 'user' });
-          setInputValue(''); // Clear input after sending
+          setInputValue('');
         }
       }, 500);
     }
   }, [transcript, resetTranscript, sendMessage]);
 
-  // Auto-speak bot messages with enhanced logic
+  // Enhanced TTS auto-speak with message ID-based triggering
   useEffect(() => {
+    if (messages.length === 0 || isSending) return;
+
     const lastMessage = messages[messages.length - 1];
+    
+    // Only process bot messages that haven't been spoken yet
     if (lastMessage && 
         lastMessage.sender === 'bot' && 
+        lastMessage.id !== lastBotMessageIdRef.current &&
         ttsSupported && 
         !isMuted && 
-        !isSpeaking &&
         lastMessage.content.length > 0) {
       
-      console.log('Auto-speaking bot message:', lastMessage.content);
-      // Small delay to ensure message is rendered and previous speech is stopped
+      console.log('New bot message detected for TTS:', lastMessage.id, lastMessage.content.substring(0, 50));
+      
+      // Update the last spoken message reference
+      lastBotMessageIdRef.current = lastMessage.id;
+      
+      // Delay to ensure message is fully rendered and previous speech stopped
       setTimeout(() => {
-        speak(lastMessage.content);
+        speak(lastMessage.content, lastMessage.id);
       }, 800);
     }
-  }, [messages, speak, ttsSupported, isMuted, isSpeaking]);
+  }, [messages, speak, ttsSupported, isMuted, isSending]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
