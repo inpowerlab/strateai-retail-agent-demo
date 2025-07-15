@@ -4,20 +4,29 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { MessageSquare, Send, Loader2, Mic, MicOff } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Mic, MicOff, Play } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { VoiceIndicator } from './VoiceIndicator';
 import { useChat } from '@/hooks/useChat';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
-import { useOpenAITTS } from '@/hooks/useOpenAITTS';
+import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { ProductFilters } from '@/types/database';
-import { VoiceAuditDisplay } from './VoiceAuditDisplay';
 
 interface MobileChatButtonProps {
   onFiltersChange?: (filters: ProductFilters) => void;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Safe fallback for findLast (es2020 compatible)
+const findLastBotMessage = (messages: any[]) => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].sender === 'bot') {
+      return messages[i];
+    }
+  }
+  return undefined;
+};
 
 export const MobileChatButton: React.FC<MobileChatButtonProps> = ({ 
   onFiltersChange, 
@@ -27,7 +36,6 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const lastBotMessageIdRef = useRef<string | null>(null);
-  const [showVoiceAudit, setShowVoiceAudit] = useState(false);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
 
   const {
@@ -46,14 +54,21 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   });
 
   const {
+    isSpeaking,
+    error: ttsError,
     speak,
     stop: stopSpeaking,
-    isSpeaking,
-    isLoading: ttsLoading,
-    error: ttsError,
-    lastUsedMethod,
-    audioElement
-  } = useOpenAITTS();
+    replay: replayLastMessage,
+    isSupported: ttsSupported,
+    isMuted,
+    toggleMute,
+    isInitializing: ttsInitializing,
+    lastSpokenMessage,
+    currentVoice,
+    canAutoPlay,
+    requestPlayPermission,
+    isMobile
+  } = useTextToSpeech();
 
   useEffect(() => {
     startChat();
@@ -86,7 +101,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   }, [transcript, resetTranscript, sendMessage, isOpen]);
 
-  // AUTO-PLAY OpenAI TTS: Voice response after bot reply (mobile optimized)
+  // Enhanced mobile TTS auto-speak
   useEffect(() => {
     if (messages.length === 0 || isSending || !isOpen) return;
 
@@ -95,19 +110,22 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     if (lastMessage && 
         lastMessage.sender === 'bot' && 
         lastMessage.id !== lastBotMessageIdRef.current &&
+        ttsSupported && 
+        !isMuted && 
         lastMessage.content.length > 0) {
       
-      console.log('📱 Auto-playing mobile OpenAI TTS for new bot message:', lastMessage.id);
+      console.log('📱 New mobile bot message for TTS:', lastMessage.id);
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Use OpenAI TTS with mobile-optimized settings and fallback
-      speak(lastMessage.content, {
-        voice: 'nova',
-        speed: 0.9,
-        fallbackToNative: true
-      });
+      // Mobile TTS - only play if we have active audio permission
+      if (canAutoPlay) {
+        console.log('📱 Mobile auto-playing TTS response');
+        speak(lastMessage.content, lastMessage.id);
+      } else {
+        console.log('📱 Mobile TTS requires manual trigger');
+      }
     }
-  }, [messages, speak, isOpen, isSending]);
+  }, [messages, speak, ttsSupported, isMuted, isOpen, isSending, canAutoPlay]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,11 +153,32 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
         stopSpeaking();
       }
       
+      // Request TTS permission when user taps mic (critical for mobile)
+      if (!canAutoPlay) {
+        await requestPlayPermission();
+      }
+      
       await startListening();
     }
   };
 
+  const handleManualPlay = async () => {
+    // Request permission and play the last bot message
+    const hasPermission = await requestPlayPermission();
+    if (hasPermission && messages.length > 0) {
+      const lastBotMessage = findLastBotMessage(messages);
+      if (lastBotMessage) {
+        speak(lastBotMessage.content, lastBotMessage.id);
+      }
+    }
+  };
+
   const handleStartConversation = async () => {
+    // Request permission when starting conversation on mobile
+    if (!canAutoPlay) {
+      await requestPlayPermission();
+    }
+    
     const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
@@ -148,14 +187,9 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   const voiceButtonClass = (isListening || speechInitializing) ? 
     "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
 
-  // Mobile TTS status display
-  const getMobileTTSStatus = () => {
-    if (ttsLoading) return "🔄 Audio";
-    if (isSpeaking && lastUsedMethod === 'openai') return "🔊 OpenAI";
-    if (isSpeaking && lastUsedMethod === 'native') return "🔊 Nativo";
-    if (ttsError) return "❌ Error";
-    return "🎵 TTS";
-  };
+  // Mobile-specific manual play button logic
+  const shouldShowManualPlay = !canAutoPlay && messages.length > 0 && 
+    messages[messages.length - 1]?.sender === 'bot' && !isSpeaking && !ttsInitializing;
 
   return (
     <>
@@ -183,26 +217,11 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                   <SheetDescription className="text-left">
                     {messages.length === 0 
                       ? 'Listo para ayudarte' 
-                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${getMobileTTSStatus()} • Móvil`}
+                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${currentVoice || 'Voz predeterminada'} • Móvil`}
                   </SheetDescription>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowVoiceAudit(!showVoiceAudit)}
-                className="text-xs shrink-0"
-              >
-                🔍
-              </Button>
             </div>
-            
-            {/* Voice Audit Display for Mobile */}
-            {showVoiceAudit && (
-              <div className="mt-4 border rounded-lg p-3 bg-muted/50 max-h-60 overflow-y-auto">
-                <VoiceAuditDisplay onAuditComplete={(summary) => console.log('Mobile audit updated:', summary)} />
-              </div>
-            )}
             
             {/* Voice Indicator for Mobile */}
             <div className="mt-2">
@@ -210,18 +229,13 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 isListening={isListening}
                 isSpeaking={isSpeaking}
                 speechInitializing={speechInitializing}
-                ttsInitializing={ttsLoading}
+                ttsInitializing={ttsInitializing}
                 speechSupported={speechSupported}
-                ttsSupported={true}
-                isMuted={false}
+                ttsSupported={ttsSupported}
+                isMuted={isMuted}
                 onStopSpeaking={stopSpeaking}
-                onReplay={() => {
-                  if (audioElement) {
-                    audioElement.currentTime = 0;
-                    audioElement.play();
-                  }
-                }}
-                onToggleMute={() => {}}
+                onReplay={replayLastMessage}
+                onToggleMute={toggleMute}
                 className="justify-start"
               />
             </div>
@@ -271,20 +285,26 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
             )}
           </ScrollArea>
 
-          {/* TTS Status and Error Messages */}
-          {ttsError && (
-            <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
-              <p className="text-xs text-destructive">
-                🔊 {ttsError} {lastUsedMethod === 'native' ? '(respaldo nativo)' : ''}
-              </p>
+          {/* Enhanced Manual Play Button for Mobile */}
+          {shouldShowManualPlay && (
+            <div className="px-4 py-2 bg-blue-50 border-t border-blue-200">
+              <Button
+                onClick={handleManualPlay}
+                variant="outline"
+                size="sm"
+                className="w-full text-blue-600 border-blue-300 hover:bg-blue-100"
+              >
+                <Play className="h-4 w-4 mr-2" />
+                Toca para escuchar respuesta
+              </Button>
             </div>
           )}
 
-          {/* Speech Error Messages */}
-          {speechError && (
+          {/* Voice/TTS Status and Error Messages */}
+          {(speechError || ttsError) && (
             <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
               <p className="text-xs text-destructive">
-                🎤 {speechError}
+                ❌ {speechError || ttsError}
               </p>
             </div>
           )}
@@ -343,7 +363,9 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
             </form>
             <p className="text-xs text-muted-foreground mt-2">
               {speechSupported ? (micPermission ? 'Voz activa' : 'Voz requiere permisos') : 'Solo texto'} • 
-              OpenAI TTS con respaldo nativo • Integrado con StrateAI
+              {ttsSupported && lastSpokenMessage && 'Última respuesta disponible para repetir • '}
+              {canAutoPlay ? 'Audio móvil activo' : 'Audio móvil manual'} • 
+              Integrado con OpenAI
             </p>
           </div>
         </SheetContent>

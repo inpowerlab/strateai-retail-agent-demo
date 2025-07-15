@@ -4,24 +4,32 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Send, MessageSquare, Loader2, Mic, MicOff } from 'lucide-react';
+import { Send, MessageSquare, Loader2, Mic, MicOff, Play } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { VoiceIndicator } from './VoiceIndicator';
 import { useChat } from '@/hooks/useChat';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
-import { useOpenAITTS } from '@/hooks/useOpenAITTS';
+import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { ProductFilters } from '@/types/database';
-import { VoiceAuditDisplay } from './VoiceAuditDisplay';
 
 interface ChatInterfaceProps {
   onFiltersChange?: (filters: ProductFilters) => void;
 }
 
+// Safe fallback for findLast (es2020 compatible)
+const findLastBotMessage = (messages: any[]) => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].sender === 'bot') {
+      return messages[i];
+    }
+  }
+  return undefined;
+};
+
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange }) => {
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const lastBotMessageIdRef = useRef<string | null>(null);
-  const [showVoiceAudit, setShowVoiceAudit] = useState(false);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
   
   const {
@@ -40,14 +48,21 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   });
 
   const {
+    isSpeaking,
+    error: ttsError,
     speak,
     stop: stopSpeaking,
-    isSpeaking,
-    isLoading: ttsLoading,
-    error: ttsError,
-    lastUsedMethod,
-    audioElement
-  } = useOpenAITTS();
+    replay: replayLastMessage,
+    isSupported: ttsSupported,
+    isMuted,
+    toggleMute,
+    isInitializing: ttsInitializing,
+    lastSpokenMessage,
+    currentVoice,
+    canAutoPlay,
+    requestPlayPermission,
+    isMobile
+  } = useTextToSpeech();
 
   useEffect(() => {
     startChat();
@@ -80,7 +95,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   }, [transcript, resetTranscript, sendMessage]);
 
-  // AUTO-PLAY OpenAI TTS: Voice response after bot reply
+  // Enhanced mobile TTS auto-speak with proper gesture handling
   useEffect(() => {
     if (messages.length === 0 || isSending) return;
 
@@ -89,19 +104,35 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     if (lastMessage && 
         lastMessage.sender === 'bot' && 
         lastMessage.id !== lastBotMessageIdRef.current &&
+        ttsSupported && 
+        !isMuted && 
         lastMessage.content.length > 0) {
       
-      console.log(`🤖 Auto-playing OpenAI TTS for new bot message: ${lastMessage.id}`);
+      console.log(`🤖 New bot message for TTS: ${lastMessage.id} (${isMobile ? 'mobile' : 'desktop'})`);
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Use OpenAI TTS with fallback enabled
-      speak(lastMessage.content, {
-        voice: 'nova',
-        speed: 0.95,
-        fallbackToNative: true
-      });
+      // Mobile vs Desktop TTS handling
+      if (isMobile) {
+        // On mobile, only auto-play if we have active audio context from recent user gesture
+        if (canAutoPlay) {
+          console.log('📱 Mobile auto-playing TTS response');
+          speak(lastMessage.content, lastMessage.id);
+        } else {
+          console.log('📱 Mobile TTS requires manual trigger');
+        }
+      } else {
+        // Desktop can use delayed auto-play
+        if (canAutoPlay) {
+          console.log('🖥️ Desktop auto-playing TTS response');
+          setTimeout(() => {
+            speak(lastMessage.content, lastMessage.id);
+          }, 800);
+        } else {
+          console.log('🖥️ Desktop TTS requires user interaction');
+        }
+      }
     }
-  }, [messages, speak, isSending]);
+  }, [messages, speak, ttsSupported, isMuted, isSending, canAutoPlay, isMobile]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,11 +160,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         stopSpeaking();
       }
       
+      // Request TTS permission when user interacts (critical for mobile)
+      if (!canAutoPlay) {
+        await requestPlayPermission();
+      }
+      
       await startListening();
     }
   };
 
+  const handleManualPlay = async () => {
+    // Request permission and play the last bot message
+    const hasPermission = await requestPlayPermission();
+    if (hasPermission && messages.length > 0) {
+      const lastBotMessage = findLastBotMessage(messages);
+      if (lastBotMessage) {
+        speak(lastBotMessage.content, lastBotMessage.id);
+      }
+    }
+  };
+
   const handleStartConversation = async () => {
+    // Request permission when starting conversation
+    if (!canAutoPlay) {
+      await requestPlayPermission();
+    }
+    
     const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
@@ -142,14 +194,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   const voiceButtonClass = (isListening || speechInitializing) ? 
     "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
 
-  // TTS status display
-  const getTTSStatus = () => {
-    if (ttsLoading) return "🔄 Generando audio...";
-    if (isSpeaking && lastUsedMethod === 'openai') return "🔊 OpenAI TTS";
-    if (isSpeaking && lastUsedMethod === 'native') return "🔊 Voz nativa";
-    if (ttsError) return `❌ ${ttsError}`;
-    return "🎵 TTS listo";
-  };
+  // Enhanced manual play button logic with mobile optimization
+  const shouldShowManualPlay = messages.length > 0 && 
+    messages[messages.length - 1]?.sender === 'bot' && 
+    !isSpeaking && 
+    !ttsInitializing && 
+    (isMobile || !canAutoPlay);
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -164,25 +214,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             <p className="text-xs text-muted-foreground">
               {messages.length === 0 
                 ? 'Listo para ayudarte' 
-                : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${getTTSStatus()}`}
+                : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${currentVoice || 'Voz predeterminada'} • ${isMobile ? 'Móvil' : 'Escritorio'}`}
             </p>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowVoiceAudit(!showVoiceAudit)}
-            className="text-xs"
-          >
-            🔍 Audit
-          </Button>
         </div>
-        
-        {/* Voice Audit Display */}
-        {showVoiceAudit && (
-          <div className="mt-4 border rounded-lg p-3 bg-muted/50">
-            <VoiceAuditDisplay onAuditComplete={(summary) => console.log('Audit updated:', summary)} />
-          </div>
-        )}
         
         {/* Voice Indicator */}
         <div className="mt-2">
@@ -190,18 +225,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             isListening={isListening}
             isSpeaking={isSpeaking}
             speechInitializing={speechInitializing}
-            ttsInitializing={ttsLoading}
+            ttsInitializing={ttsInitializing}
             speechSupported={speechSupported}
-            ttsSupported={true}
-            isMuted={false}
+            ttsSupported={ttsSupported}
+            isMuted={isMuted}
             onStopSpeaking={stopSpeaking}
-            onReplay={() => {
-              if (audioElement) {
-                audioElement.currentTime = 0;
-                audioElement.play();
-              }
-            }}
-            onToggleMute={() => {}}
+            onReplay={replayLastMessage}
+            onToggleMute={toggleMute}
             className="justify-start"
           />
         </div>
@@ -214,7 +244,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">¡Comencemos a chatear!</h3>
             <p className="text-muted-foreground mb-4 max-w-sm">
-              Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real y puedo ayudarte a encontrar exactamente lo que buscas.
+              Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real y puedo ayudarte a encontrar exactamente lo que buscas. 
               {speechSupported && ' También puedes usar tu voz para hablar conmigo.'}
             </p>
             <Button onClick={handleStartConversation} variant="outline">
@@ -251,20 +281,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         )}
       </ScrollArea>
 
-      {/* TTS Status and Error Messages */}
-      {ttsError && (
-        <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
-          <p className="text-xs text-destructive">
-            🔊 {ttsError} {lastUsedMethod === 'native' ? '(usando voz nativa como respaldo)' : ''}
-          </p>
+      {/* Enhanced Manual Play Button - Mobile Optimized */}
+      {shouldShowManualPlay && (
+        <div className="px-4 py-2 bg-blue-50 border-t border-blue-200">
+          <Button
+            onClick={handleManualPlay}
+            variant="outline"
+            size="sm"
+            className="w-full text-blue-600 border-blue-300 hover:bg-blue-100"
+          >
+            <Play className="h-4 w-4 mr-2" />
+            {isMobile ? 'Toca para escuchar respuesta' : 'Reproducir respuesta'}
+          </Button>
         </div>
       )}
 
-      {/* Speech Error Messages */}
-      {speechError && (
+      {/* Voice/TTS Status and Error Messages */}
+      {(speechError || ttsError) && (
         <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
           <p className="text-xs text-destructive">
-            🎤 {speechError}
+            ❌ {speechError || ttsError}
           </p>
         </div>
       )}
@@ -324,7 +360,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         <p className="text-xs text-muted-foreground mt-2">
           Presiona Enter para enviar • Máximo 500 caracteres • 
           {speechSupported ? (micPermission ? ' Voz activa' : ' Voz requiere permisos') : ' Solo texto'} • 
-          TTS con OpenAI API y respaldo nativo • Integrado con StrateAI
+          {ttsSupported && lastSpokenMessage && ' Última respuesta disponible para repetir • '}
+          {isMobile ? (canAutoPlay ? 'Audio móvil activo' : 'Audio móvil manual') : (canAutoPlay ? 'Audio automático' : 'Audio manual')} • 
+          Integrado con OpenAI
         </p>
       </div>
     </div>
