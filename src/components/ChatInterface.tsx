@@ -16,6 +16,16 @@ interface ChatInterfaceProps {
   onFiltersChange?: (filters: ProductFilters) => void;
 }
 
+// Safe fallback for findLast (es2020 compatible)
+const findLastBotMessage = (messages: any[]) => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].sender === 'bot') {
+      return messages[i];
+    }
+  }
+  return undefined;
+};
+
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange }) => {
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -152,10 +162,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   };
 
   const handleManualPlay = async () => {
-    // Request permission and play the last bot message
+    // Request permission and play the last bot message - using safe fallback
     const hasPermission = await requestPlayPermission();
     if (hasPermission && messages.length > 0) {
-      const lastBotMessage = messages.findLast(msg => msg.sender === 'bot');
+      const lastBotMessage = findLastBotMessage(messages);
       if (lastBotMessage) {
         speak(lastBotMessage.content, lastBotMessage.id);
       }

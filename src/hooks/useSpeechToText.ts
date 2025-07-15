@@ -63,6 +63,30 @@ export const useSpeechToText = (options: UseSpeechToTextOptions = {}): UseSpeech
     }
   }, []);
 
+  // Declare stopListening function first to fix block-scoped variable issue
+  const stopListening = useCallback(() => {
+    console.log('🛑 Stopping speech recognition...');
+    isStoppingRef.current = true;
+    
+    clearAllTimers();
+    
+    if (recognitionRef.current && (isListening || isInitializing)) {
+      try {
+        recognitionRef.current.stop();
+        console.log('✅ Speech recognition stop requested');
+      } catch (error) {
+        console.error('Error stopping speech recognition:', error);
+        // Force state reset even if stop fails
+        setIsListening(false);
+        setIsInitializing(false);
+      }
+    } else {
+      // Ensure state is reset even if recognition wasn't active
+      setIsListening(false);
+      setIsInitializing(false);
+    }
+  }, [isListening, isInitializing, clearAllTimers]);
+
   // Request microphone permission and prepare TTS context
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     try {
@@ -282,29 +306,6 @@ export const useSpeechToText = (options: UseSpeechToTextOptions = {}): UseSpeech
       setHasPermission(false);
     }
   }, [isSupported, isListening, isInitializing, requestPermissions]);
-
-  const stopListening = useCallback(() => {
-    console.log('🛑 Stopping speech recognition...');
-    isStoppingRef.current = true;
-    
-    clearAllTimers();
-    
-    if (recognitionRef.current && (isListening || isInitializing)) {
-      try {
-        recognitionRef.current.stop();
-        console.log('✅ Speech recognition stop requested');
-      } catch (error) {
-        console.error('Error stopping speech recognition:', error);
-        // Force state reset even if stop fails
-        setIsListening(false);
-        setIsInitializing(false);
-      }
-    } else {
-      // Ensure state is reset even if recognition wasn't active
-      setIsListening(false);
-      setIsInitializing(false);
-    }
-  }, [isListening, isInitializing, clearAllTimers]);
 
   const resetTranscript = useCallback(() => {
     setTranscript('');
