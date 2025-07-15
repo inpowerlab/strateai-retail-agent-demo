@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Send, MessageSquare, Loader2, Mic, MicOff, Play } from 'lucide-react';
+import { Send, MessageSquare, Loader2, Mic, MicOff } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { VoiceIndicator } from './VoiceIndicator';
 import { useChat } from '@/hooks/useChat';
@@ -95,7 +95,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   }, [transcript, resetTranscript, sendMessage]);
 
-  // Enhanced mobile TTS auto-speak with proper gesture handling
+  // AUTO-PLAY TTS: Immediate voice response after bot reply
   useEffect(() => {
     if (messages.length === 0 || isSending) return;
 
@@ -108,28 +108,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         !isMuted && 
         lastMessage.content.length > 0) {
       
-      console.log(`🤖 New bot message for TTS: ${lastMessage.id} (${isMobile ? 'mobile' : 'desktop'})`);
+      console.log(`🤖 Auto-playing TTS for new bot message: ${lastMessage.id} (${isMobile ? 'mobile' : 'desktop'})`);
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Mobile vs Desktop TTS handling
-      if (isMobile) {
-        // On mobile, only auto-play if we have active audio context from recent user gesture
-        if (canAutoPlay) {
-          console.log('📱 Mobile auto-playing TTS response');
-          speak(lastMessage.content, lastMessage.id);
-        } else {
-          console.log('📱 Mobile TTS requires manual trigger');
-        }
+      // Auto-play TTS immediately after bot response
+      if (canAutoPlay) {
+        console.log('🔊 Auto-playing TTS response immediately');
+        speak(lastMessage.content, lastMessage.id);
+      } else if (isMobile) {
+        console.log('📱 Mobile TTS requires user gesture - requesting permission');
+        // On mobile, if no permission yet, request it but don't show manual button
       } else {
-        // Desktop can use delayed auto-play
-        if (canAutoPlay) {
-          console.log('🖥️ Desktop auto-playing TTS response');
-          setTimeout(() => {
-            speak(lastMessage.content, lastMessage.id);
-          }, 800);
-        } else {
-          console.log('🖥️ Desktop TTS requires user interaction');
-        }
+        console.log('🖥️ Desktop TTS requires user interaction - will play on next user action');
       }
     }
   }, [messages, speak, ttsSupported, isMuted, isSending, canAutoPlay, isMobile]);
@@ -160,7 +150,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         stopSpeaking();
       }
       
-      // Request TTS permission when user interacts (critical for mobile)
+      // Request TTS permission when user interacts (critical for mobile auto-play)
       if (!canAutoPlay) {
         await requestPlayPermission();
       }
@@ -169,19 +159,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   };
 
-  const handleManualPlay = async () => {
-    // Request permission and play the last bot message
-    const hasPermission = await requestPlayPermission();
-    if (hasPermission && messages.length > 0) {
-      const lastBotMessage = findLastBotMessage(messages);
-      if (lastBotMessage) {
-        speak(lastBotMessage.content, lastBotMessage.id);
-      }
-    }
-  };
-
   const handleStartConversation = async () => {
-    // Request permission when starting conversation
+    // Request permission when starting conversation for seamless auto-play
     if (!canAutoPlay) {
       await requestPlayPermission();
     }
@@ -193,13 +172,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   const voiceButtonVariant = (isListening || speechInitializing) ? "destructive" : "outline";
   const voiceButtonClass = (isListening || speechInitializing) ? 
     "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
-
-  // Enhanced manual play button logic with mobile optimization
-  const shouldShowManualPlay = messages.length > 0 && 
-    messages[messages.length - 1]?.sender === 'bot' && 
-    !isSpeaking && 
-    !ttsInitializing && 
-    (isMobile || !canAutoPlay);
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -281,21 +253,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         )}
       </ScrollArea>
 
-      {/* Enhanced Manual Play Button - Mobile Optimized */}
-      {shouldShowManualPlay && (
-        <div className="px-4 py-2 bg-blue-50 border-t border-blue-200">
-          <Button
-            onClick={handleManualPlay}
-            variant="outline"
-            size="sm"
-            className="w-full text-blue-600 border-blue-300 hover:bg-blue-100"
-          >
-            <Play className="h-4 w-4 mr-2" />
-            {isMobile ? 'Toca para escuchar respuesta' : 'Reproducir respuesta'}
-          </Button>
-        </div>
-      )}
-
       {/* Voice/TTS Status and Error Messages */}
       {(speechError || ttsError) && (
         <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
@@ -361,7 +318,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           Presiona Enter para enviar • Máximo 500 caracteres • 
           {speechSupported ? (micPermission ? ' Voz activa' : ' Voz requiere permisos') : ' Solo texto'} • 
           {ttsSupported && lastSpokenMessage && ' Última respuesta disponible para repetir • '}
-          {isMobile ? (canAutoPlay ? 'Audio móvil activo' : 'Audio móvil manual') : (canAutoPlay ? 'Audio automático' : 'Audio manual')} • 
+          {isMobile ? (canAutoPlay ? 'Audio móvil automático' : 'Audio móvil manual') : (canAutoPlay ? 'Audio automático' : 'Audio manual')} • 
           Integrado con OpenAI
         </p>
       </div>
