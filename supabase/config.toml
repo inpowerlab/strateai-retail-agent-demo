@@ -9,3 +9,6 @@ enabled = true
 
 [functions.chat-assistant]
 verify_jwt = false
+
+[functions.openai-tts]
+verify_jwt = false
