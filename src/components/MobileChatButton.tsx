@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,7 +65,8 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     lastSpokenMessage,
     currentVoice,
     canAutoPlay,
-    requestPlayPermission
+    requestPlayPermission,
+    isMobile
   } = useTextToSpeech();
 
   useEffect(() => {
@@ -100,7 +100,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   }, [transcript, resetTranscript, sendMessage, isOpen]);
 
-  // Enhanced TTS auto-speak with mobile permission handling
+  // Enhanced TTS auto-speak with mobile-optimized permission handling
   useEffect(() => {
     if (messages.length === 0 || isSending || !isOpen) return;
 
@@ -119,14 +119,12 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
       // Update the last spoken message reference
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Try to auto-play if we have permission, otherwise user needs to tap
+      // Mobile TTS handling - immediate if permission granted
       if (canAutoPlay) {
-        console.log('🎵 Auto-playing mobile TTS response');
-        setTimeout(() => {
-          speak(lastMessage.content, lastMessage.id);
-        }, 1000);
+        console.log('📱 Mobile auto-playing TTS response immediately');
+        speak(lastMessage.content, lastMessage.id);
       } else {
-        console.log('⏸️ Mobile TTS requires user interaction');
+        console.log('📱 Mobile TTS waiting for user interaction');
       }
     }
   }, [messages, speak, ttsSupported, isMuted, isOpen, isSending, canAutoPlay]);
@@ -157,7 +155,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
         stopSpeaking();
       }
       
-      // Request TTS permission when user taps mic (user gesture)
+      // Request TTS permission when user taps mic (user gesture) - critical for mobile
       if (!canAutoPlay) {
         await requestPlayPermission();
       }
@@ -187,7 +185,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   const voiceButtonClass = (isListening || speechInitializing) ? 
     "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
 
-  // Show manual play button if TTS can't auto-play and there's a recent bot message
+  // Enhanced manual play button logic for mobile
   const shouldShowManualPlay = !canAutoPlay && messages.length > 0 && 
     messages[messages.length - 1]?.sender === 'bot' && !isSpeaking && !ttsInitializing;
 
@@ -217,7 +215,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                   <SheetDescription className="text-left">
                     {messages.length === 0 
                       ? 'Listo para ayudarte' 
-                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${currentVoice || 'Voz predeterminada'}`}
+                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${currentVoice || 'Voz predeterminada'} • Móvil`}
                   </SheetDescription>
                 </div>
               </div>
@@ -285,7 +283,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
             )}
           </ScrollArea>
 
-          {/* Manual Play Button for TTS */}
+          {/* Enhanced Manual Play Button for Mobile */}
           {shouldShowManualPlay && (
             <div className="px-4 py-2 bg-blue-50 border-t border-blue-200">
               <Button
@@ -295,7 +293,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 className="w-full text-blue-600 border-blue-300 hover:bg-blue-100"
               >
                 <Play className="h-4 w-4 mr-2" />
-                Toca para escuchar la respuesta
+                Toca para escuchar respuesta
               </Button>
             </div>
           )}
@@ -364,7 +362,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
             <p className="text-xs text-muted-foreground mt-2">
               {speechSupported ? (micPermission ? 'Voz activa' : 'Voz requiere permisos') : 'Solo texto'} • 
               {ttsSupported && lastSpokenMessage && 'Última respuesta disponible para repetir • '}
-              {canAutoPlay ? 'Audio automático' : 'Audio manual'} • 
+              {canAutoPlay ? 'Audio móvil activo' : 'Audio móvil manual'} • 
               Integrado con OpenAI
             </p>
           </div>
