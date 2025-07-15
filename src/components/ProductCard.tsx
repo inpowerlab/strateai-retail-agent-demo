@@ -6,9 +6,10 @@ import { Producto } from '@/types/database';
 
 interface ProductCardProps {
   product: Producto;
+  onClick?: () => void;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) => {
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('es-US', {
       style: 'currency',
@@ -17,12 +18,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   return (
-    <Card className="h-full flex flex-col overflow-hidden hover:shadow-lg transition-shadow duration-200">
+    <Card 
+      className="h-full flex flex-col overflow-hidden hover:shadow-lg transition-all duration-200 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+      onClick={onClick}
+    >
       <div className="aspect-square relative overflow-hidden">
         <img
           src={product.imagen_url}
           alt={product.nombre}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover transition-transform duration-200 hover:scale-105"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             target.src = 'https://images.unsplash.com/photo-1581833971358-2c8b550f87b3?w=500&h=500&fit=crop';
@@ -33,6 +37,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             {product.categoria}
           </Badge>
         </div>
+        {/* Video indicator */}
+        {product.video_url && (
+          <div className="absolute bottom-2 left-2">
+            <Badge variant="default" className="bg-primary/90 backdrop-blur-sm text-xs">
+              Video
+            </Badge>
+          </div>
+        )}
       </div>
       <CardContent className="flex-1 flex flex-col p-4">
         <div className="flex-1">

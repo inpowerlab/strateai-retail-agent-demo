@@ -1,11 +1,12 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ProductCard } from './ProductCard';
+import { ProductQuickView } from './ProductQuickView';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, Package } from 'lucide-react';
 import { useProducts, useCategories } from '@/hooks/useProducts';
-import { ProductFilters } from '@/types/database';
+import { ProductFilters, Producto } from '@/types/database';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 
@@ -17,6 +18,8 @@ interface ProductGridProps {
 export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChange }) => {
   const { data: products, isLoading, error } = useProducts(filters);
   const { data: categories } = useCategories();
+  const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
+  const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
 
   const handleCategoryChange = (categoria: string) => {
     onFiltersChange?.({
@@ -27,6 +30,16 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
 
   const clearFilters = () => {
     onFiltersChange?.({});
+  };
+
+  const handleProductClick = (product: Producto) => {
+    setSelectedProduct(product);
+    setIsQuickViewOpen(true);
+  };
+
+  const handleCloseQuickView = () => {
+    setIsQuickViewOpen(false);
+    setSelectedProduct(null);
   };
 
   if (error) {
@@ -98,7 +111,11 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
           ) : products && products.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard 
+                  key={product.id} 
+                  product={product}
+                  onClick={() => handleProductClick(product)}
+                />
               ))}
             </div>
           ) : (
@@ -115,6 +132,13 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
           )}
         </div>
       </div>
+
+      {/* Product Quick View Modal */}
+      <ProductQuickView
+        product={selectedProduct}
+        isOpen={isQuickViewOpen}
+        onClose={handleCloseQuickView}
+      />
     </div>
   );
 };
