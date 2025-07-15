@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.51.0';
@@ -38,6 +39,58 @@ function cleanNaturalLanguageResponse(text: string): string {
     .trim()
     .replace(/^\s+|\s+$/gm, '') // Trim each line
     .replace(/\n\s*\n/g, '\n'); // Remove empty lines
+}
+
+// CRITICAL: Database-driven response validation to prevent product availability inconsistencies
+function validateResponseConsistency(aiResponse: string, filteredProducts: any[], userQuery: string): string {
+  console.log(`🔍 VALIDATION: Checking response consistency with ${filteredProducts.length} products found`);
+  
+  if (!aiResponse || !Array.isArray(filteredProducts)) {
+    console.log('⚠️ VALIDATION: Invalid input parameters');
+    return aiResponse || 'Lo siento, hubo un problema al procesar tu consulta.';
+  }
+
+  const hasProducts = filteredProducts.length > 0;
+  const lowerResponse = aiResponse.toLowerCase();
+  
+  // Patterns that indicate "no products available" in Spanish
+  const noProductsPatterns = [
+    /no tengo|no tenemos|no hay|no existe|no encontr|no disponib|no contamos|sin productos|agotado/,
+    /no puedo encontrar|no logro encontrar|no hay coincidencias|no hay resultados/,
+    /lo siento.*no.*dispon|desafortunadamente.*no/
+  ];
+
+  const indicatesNoProducts = noProductsPatterns.some(pattern => pattern.test(lowerResponse));
+
+  if (hasProducts && indicatesNoProducts) {
+    // CRITICAL FIX: AI claims no products but DB has results - Replace with accurate response
+    console.log('🔧 CRITICAL FIX: AI claimed no products but database returned results. Generating accurate response.');
+    
+    const productSummaries = filteredProducts.slice(0, 3).map(p => 
+      `${p.nombre} por ${p.precio} dólares (${p.cantidad_disponible} disponibles)`
+    ).join(', ');
+    
+    const categoryList = [...new Set(filteredProducts.map(p => p.categoria))].join(', ');
+    const priceRange = {
+      min: Math.min(...filteredProducts.map(p => p.precio)),
+      max: Math.max(...filteredProducts.map(p => p.precio))
+    };
+
+    const correctedResponse = `¡Perfecto! Sí tengo opciones que te pueden interesar. Encontré ${filteredProducts.length} producto${filteredProducts.length > 1 ? 's' : ''} disponible${filteredProducts.length > 1 ? 's' : ''} en ${categoryList}. Por ejemplo: ${productSummaries}. Los precios van desde ${priceRange.min} hasta ${priceRange.max} dólares. ¿Te gustaría que te dé más detalles sobre alguno de estos productos?`;
+    
+    console.log('✅ FIXED: Generated accurate response based on actual product data');
+    return correctedResponse;
+  }
+
+  if (!hasProducts && !indicatesNoProducts) {
+    // Edge case: AI mentions products but none exist in filtered results
+    console.log('🔧 EDGE CASE FIX: AI mentioned products but none found in filtered results');
+    return 'Lo siento, no encontré productos que coincidan exactamente con tu búsqueda. ¿Podrías ser más específico o te gustaría que te sugiera algunas alternativas de nuestro catálogo?';
+  }
+
+  // Response is consistent with database state
+  console.log('✅ VALIDATION PASSED: Response is consistent with database state');
+  return aiResponse;
 }
 
 serve(async (req) => {
@@ -153,12 +206,48 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
       }
     }
 
-    // CRITICAL: Apply natural language post-processing filter
+    // CRITICAL: Apply suggested filters to get actual filtered products for validation
+    let filteredProducts = productos || [];
+    if (Object.keys(suggestedFilters).length > 0) {
+      console.log('🔍 Applying suggested filters to validate response accuracy...');
+      
+      const filters = suggestedFilters as any;
+      
+      if (filters.categoria) {
+        filteredProducts = filteredProducts.filter(p => 
+          p.categoria.toLowerCase() === filters.categoria.toLowerCase()
+        );
+      }
+      
+      if (filters.precioMin !== undefined) {
+        filteredProducts = filteredProducts.filter(p => p.precio >= filters.precioMin);
+      }
+      
+      if (filters.precioMax !== undefined) {
+        filteredProducts = filteredProducts.filter(p => p.precio <= filters.precioMax);
+      }
+      
+      if (filters.searchTerm) {
+        const searchTerm = filters.searchTerm.toLowerCase();
+        filteredProducts = filteredProducts.filter(p => 
+          p.nombre.toLowerCase().includes(searchTerm) || 
+          p.descripcion.toLowerCase().includes(searchTerm)
+        );
+      }
+      
+      console.log(`🔍 FILTER RESULTS: ${filteredProducts.length} products match the suggested filters`);
+    }
+
+    // CRITICAL: Database-driven response validation - This prevents inconsistencies
     const rawResponseWithoutFilters = rawAiResponse.replace(/FILTROS_SUGERIDOS:\s*{.*?}/, '').trim();
-    const cleanResponse = cleanNaturalLanguageResponse(rawResponseWithoutFilters);
+    const validatedResponse = validateResponseConsistency(rawResponseWithoutFilters, filteredProducts, message);
     
-    console.log('Raw response:', rawResponseWithoutFilters);
-    console.log('Cleaned response:', cleanResponse);
+    // Apply natural language post-processing filter after validation
+    const cleanResponse = cleanNaturalLanguageResponse(validatedResponse);
+    
+    console.log('Raw AI response:', rawResponseWithoutFilters);
+    console.log('Validated response:', validatedResponse);
+    console.log('Final clean response:', cleanResponse);
 
     // Validate cleaned response is not empty
     if (!cleanResponse || cleanResponse.length < 10) {
@@ -172,7 +261,7 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
         .insert({
           conversacion_id: conversationId,
           sender: 'bot',
-          content: cleanResponse, // Store cleaned response
+          content: cleanResponse, // Store final validated and cleaned response
         });
 
       if (messageError) {
@@ -183,7 +272,7 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
     console.log('Chat assistant response completed successfully');
 
     return new Response(JSON.stringify({
-      response: cleanResponse, // Return cleaned response
+      response: cleanResponse, // Return validated and cleaned response
       filters: suggestedFilters,
       success: true
     }), {
