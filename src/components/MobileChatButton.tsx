@@ -33,7 +33,8 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     startListening,
     stopListening,
     resetTranscript,
-    isSupported: speechSupported
+    isSupported: speechSupported,
+    isInitializing: speechInitializing
   } = useSpeechToText();
 
   const {
@@ -43,7 +44,8 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     stop: stopSpeaking,
     isSupported: ttsSupported,
     isMuted,
-    toggleMute
+    toggleMute,
+    isInitializing: ttsInitializing
   } = useTextToSpeech();
 
   useEffect(() => {
@@ -60,23 +62,40 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   }, [messages, isOpen]);
 
-  // Handle voice transcript
+  // Handle voice transcript with auto-send (mobile optimized)
   useEffect(() => {
-    if (transcript) {
+    if (transcript && transcript.length > 3 && isOpen) {
+      console.log('Processing mobile transcript:', transcript);
       setInputValue(transcript);
       resetTranscript();
+      
+      // Auto-send with slightly longer delay for mobile
+      setTimeout(() => {
+        if (transcript.trim()) {
+          sendMessage({ content: transcript.trim(), sender: 'user' });
+          setInputValue('');
+        }
+      }, 700);
     }
-  }, [transcript, resetTranscript]);
+  }, [transcript, resetTranscript, sendMessage, isOpen]);
 
   // Auto-speak bot messages when chat is open
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage && lastMessage.sender === 'bot' && ttsSupported && !isMuted && isOpen) {
+    if (lastMessage && 
+        lastMessage.sender === 'bot' && 
+        ttsSupported && 
+        !isMuted && 
+        isOpen &&
+        !isSpeaking &&
+        lastMessage.content.length > 0) {
+      
+      console.log('Auto-speaking mobile bot message:', lastMessage.content);
       setTimeout(() => {
         speak(lastMessage.content);
-      }, 300);
+      }, 1000); // Longer delay on mobile for better UX
     }
-  }, [messages, speak, ttsSupported, isMuted, isOpen]);
+  }, [messages, speak, ttsSupported, isMuted, isOpen, isSpeaking]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,17 +112,25 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   };
 
   const handleVoiceToggle = () => {
-    if (isListening) {
+    if (isListening || speechInitializing) {
       stopListening();
     } else {
+      // Stop TTS when starting to listen
+      if (isSpeaking) {
+        stopSpeaking();
+      }
       startListening();
     }
   };
 
   const handleStartConversation = () => {
-    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: 'Muéstrame televisores de 55 pulgadas bajo $800' o 'Busco audífonos inalámbricos'. ¿En qué puedo ayudarte hoy?";
+    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
+
+  const voiceButtonVariant = (isListening || speechInitializing) ? "destructive" : "outline";
+  const voiceButtonClass = (isListening || speechInitializing) ? 
+    "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
 
   return (
     <>
@@ -128,7 +155,9 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 <div>
                   <SheetTitle className="text-left">Asistente StrateAI</SheetTitle>
                   <SheetDescription className="text-left">
-                    {messages.length === 0 ? 'Listo para ayudarte' : 'En línea • Integrado con OpenAI'}
+                    {messages.length === 0 
+                      ? 'Listo para ayudarte' 
+                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • Integrado con OpenAI`}
                   </SheetDescription>
                 </div>
               </div>
@@ -160,7 +189,8 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">¡Comencemos a chatear!</h3>
                 <p className="text-muted-foreground mb-4 max-w-sm">
-                  Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real. También puedes usar tu voz.
+                  Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real.
+                  {speechSupported && ' También puedes usar tu voz.'}
                 </p>
                 <Button onClick={handleStartConversation} variant="outline">
                   Iniciar conversación
@@ -196,12 +226,29 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
             )}
           </ScrollArea>
 
-          {/* Voice/TTS Error Messages */}
-          {(speechError || ttsError) && (
-            <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-200">
-              <p className="text-xs text-yellow-700">
-                {speechError || ttsError}
-              </p>
+          {/* Voice/TTS Status and Error Messages */}
+          {(speechError || ttsError || isListening || speechInitializing || isSpeaking || ttsInitializing) && (
+            <div className="px-4 py-2 bg-muted border-t">
+              {isListening && (
+                <p className="text-xs text-blue-700 animate-pulse">
+                  🎤 Escuchando... Habla ahora
+                </p>
+              )}
+              {speechInitializing && (
+                <p className="text-xs text-blue-700">
+                  🎤 Iniciando micrófono...
+                </p>
+              )}
+              {(isSpeaking || ttsInitializing) && (
+                <p className="text-xs text-green-700">
+                  🔊 Reproduciendo respuesta...
+                </p>
+              )}
+              {(speechError || ttsError) && (
+                <p className="text-xs text-red-700">
+                  ❌ {speechError || ttsError}
+                </p>
+              )}
             </div>
           )}
 
@@ -211,8 +258,8 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Pregúntame sobre productos disponibles..."
-                disabled={isSending}
+                placeholder={speechSupported ? "Escribe o usa el micrófono..." : "Pregúntame sobre productos disponibles..."}
+                disabled={isSending || isListening || speechInitializing}
                 className="flex-1"
                 maxLength={500}
               />
@@ -222,13 +269,15 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                   onClick={handleVoiceToggle}
                   disabled={isSending}
                   size="icon"
-                  variant="outline"
-                  className={`transition-colors ${
-                    isListening ? "bg-red-100 text-red-600 border-red-300 animate-pulse" : ""
-                  }`}
-                  title={isListening ? 'Parar grabación' : 'Iniciar grabación de voz'}
+                  variant={voiceButtonVariant}
+                  className={`transition-colors ${voiceButtonClass}`}
+                  title={
+                    isListening || speechInitializing 
+                      ? 'Parar grabación' 
+                      : 'Iniciar grabación de voz'
+                  }
                 >
-                  {isListening ? (
+                  {(isListening || speechInitializing) ? (
                     <MicOff className="h-4 w-4" />
                   ) : (
                     <Mic className="h-4 w-4" />
@@ -237,7 +286,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
               )}
               <Button 
                 type="submit" 
-                disabled={!inputValue.trim() || isSending}
+                disabled={!inputValue.trim() || isSending || isListening || speechInitializing}
                 size="icon"
               >
                 {isSending ? (

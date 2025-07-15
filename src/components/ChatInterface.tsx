@@ -27,7 +27,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     startListening,
     stopListening,
     resetTranscript,
-    isSupported: speechSupported
+    isSupported: speechSupported,
+    isInitializing: speechInitializing
   } = useSpeechToText();
 
   const {
@@ -37,7 +38,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     stop: stopSpeaking,
     isSupported: ttsSupported,
     isMuted,
-    toggleMute
+    toggleMute,
+    isInitializing: ttsInitializing
   } = useTextToSpeech();
 
   useEffect(() => {
@@ -54,24 +56,40 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   }, [messages]);
 
-  // Handle voice transcript
+  // Handle voice transcript with auto-send
   useEffect(() => {
-    if (transcript) {
+    if (transcript && transcript.length > 3) { // Only process substantial speech
+      console.log('Processing transcript:', transcript);
       setInputValue(transcript);
       resetTranscript();
+      
+      // Auto-send the transcribed message after a short delay
+      setTimeout(() => {
+        if (transcript.trim()) {
+          sendMessage({ content: transcript.trim(), sender: 'user' });
+          setInputValue(''); // Clear input after sending
+        }
+      }, 500);
     }
-  }, [transcript, resetTranscript]);
+  }, [transcript, resetTranscript, sendMessage]);
 
-  // Auto-speak bot messages
+  // Auto-speak bot messages with enhanced logic
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage && lastMessage.sender === 'bot' && ttsSupported && !isMuted) {
-      // Small delay to ensure message is rendered
+    if (lastMessage && 
+        lastMessage.sender === 'bot' && 
+        ttsSupported && 
+        !isMuted && 
+        !isSpeaking &&
+        lastMessage.content.length > 0) {
+      
+      console.log('Auto-speaking bot message:', lastMessage.content);
+      // Small delay to ensure message is rendered and previous speech is stopped
       setTimeout(() => {
         speak(lastMessage.content);
-      }, 300);
+      }, 800);
     }
-  }, [messages, speak, ttsSupported, isMuted]);
+  }, [messages, speak, ttsSupported, isMuted, isSpeaking]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,17 +106,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   };
 
   const handleVoiceToggle = () => {
-    if (isListening) {
+    if (isListening || speechInitializing) {
       stopListening();
     } else {
+      // Stop TTS when starting to listen
+      if (isSpeaking) {
+        stopSpeaking();
+      }
       startListening();
     }
   };
 
   const handleStartConversation = () => {
-    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: 'Muéstrame televisores de 55 pulgadas bajo $800' o 'Busco audífonos inalámbricos'. ¿En qué puedo ayudarte hoy?";
+    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
+
+  const voiceButtonVariant = (isListening || speechInitializing) ? "destructive" : "outline";
+  const voiceButtonClass = (isListening || speechInitializing) ? 
+    "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -111,7 +137,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           <div className="flex-1">
             <h2 className="font-semibold">Asistente StrateAI</h2>
             <p className="text-xs text-muted-foreground">
-              {messages.length === 0 ? 'Listo para ayudarte' : 'En línea • Integrado con OpenAI'}
+              {messages.length === 0 
+                ? 'Listo para ayudarte' 
+                : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • Integrado con OpenAI`}
             </p>
           </div>
           {/* Voice Controls */}
@@ -142,7 +170,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">¡Comencemos a chatear!</h3>
             <p className="text-muted-foreground mb-4 max-w-sm">
-              Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real y puedo ayudarte a encontrar exactamente lo que buscas. También puedes usar tu voz para hablar conmigo.
+              Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real y puedo ayudarte a encontrar exactamente lo que buscas. 
+              {speechSupported && ' También puedes usar tu voz para hablar conmigo.'}
             </p>
             <Button onClick={handleStartConversation} variant="outline">
               Iniciar conversación
@@ -178,12 +207,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         )}
       </ScrollArea>
 
-      {/* Voice/TTS Error Messages */}
-      {(speechError || ttsError) && (
-        <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-200">
-          <p className="text-xs text-yellow-700">
-            {speechError || ttsError}
-          </p>
+      {/* Voice/TTS Status and Error Messages */}
+      {(speechError || ttsError || isListening || speechInitializing || isSpeaking || ttsInitializing) && (
+        <div className="px-4 py-2 bg-muted border-t">
+          {isListening && (
+            <p className="text-xs text-blue-700 animate-pulse">
+              🎤 Escuchando... Habla ahora
+            </p>
+          )}
+          {speechInitializing && (
+            <p className="text-xs text-blue-700">
+              🎤 Iniciando micrófono...
+            </p>
+          )}
+          {(isSpeaking || ttsInitializing) && (
+            <p className="text-xs text-green-700">
+              🔊 Reproduciendo respuesta...
+            </p>
+          )}
+          {(speechError || ttsError) && (
+            <p className="text-xs text-red-700">
+              ❌ {speechError || ttsError}
+            </p>
+          )}
         </div>
       )}
 
@@ -193,8 +239,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Pregúntame sobre productos disponibles..."
-            disabled={isSending}
+            placeholder={speechSupported ? "Escribe o usa el micrófono..." : "Pregúntame sobre productos disponibles..."}
+            disabled={isSending || isListening || speechInitializing}
             className="flex-1"
             maxLength={500}
           />
@@ -204,13 +250,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
               onClick={handleVoiceToggle}
               disabled={isSending}
               size="icon"
-              variant="outline"
-              className={`transition-colors ${
-                isListening ? "bg-red-100 text-red-600 border-red-300 animate-pulse" : ""
-              }`}
-              title={isListening ? 'Parar grabación' : 'Iniciar grabación de voz'}
+              variant={voiceButtonVariant}
+              className={`transition-colors ${voiceButtonClass}`}
+              title={
+                isListening || speechInitializing 
+                  ? 'Parar grabación' 
+                  : 'Iniciar grabación de voz'
+              }
             >
-              {isListening ? (
+              {(isListening || speechInitializing) ? (
                 <MicOff className="h-4 w-4" />
               ) : (
                 <Mic className="h-4 w-4" />
@@ -219,7 +267,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           )}
           <Button 
             type="submit" 
-            disabled={!inputValue.trim() || isSending}
+            disabled={!inputValue.trim() || isSending || isListening || speechInitializing}
             size="icon"
           >
             {isSending ? (
@@ -230,7 +278,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           </Button>
         </form>
         <p className="text-xs text-muted-foreground mt-2">
-          Presiona Enter para enviar • Máximo 500 caracteres • {speechSupported ? 'Voz disponible' : 'Solo texto'} • Integrado con OpenAI
+          Presiona Enter para enviar • Máximo 500 caracteres • 
+          {speechSupported ? ' Voz disponible' : ' Solo texto'} • 
+          Integrado con OpenAI
         </p>
       </div>
     </div>

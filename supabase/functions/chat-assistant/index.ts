@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.51.0';
@@ -7,6 +6,39 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Critical: Natural language post-processing filter for clean Spanish output
+function cleanNaturalLanguageResponse(text: string): string {
+  if (!text) return '';
+  
+  return text
+    // Remove markdown formatting
+    .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold **text**
+    .replace(/\*(.*?)\*/g, '$1') // Remove italic *text*
+    .replace(/`(.*?)`/g, '$1') // Remove inline code `text`
+    .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+    .replace(/#{1,6}\s/g, '') // Remove headers
+    .replace(/^\s*[-*+]\s/gm, '') // Remove list bullets
+    .replace(/^\s*\d+\.\s/gm, '') // Remove numbered lists
+    
+    // Clean whitespace and formatting
+    .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
+    .replace(/\s{2,}/g, ' ') // Multiple spaces to single space
+    .replace(/\t/g, ' ') // Tabs to spaces
+    
+    // Remove emojis and special characters (keep Spanish punctuation)
+    .replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '')
+    
+    // Clean up punctuation
+    .replace(/[^\w\sáéíóúüñÁÉÍÓÚÜÑ.,;:¿?¡!()$€-]/g, '') // Keep only Spanish chars and basic punctuation
+    .replace(/\.{2,}/g, '.') // Multiple dots to single dot
+    .replace(/,{2,}/g, ',') // Multiple commas to single comma
+    
+    // Final cleanup
+    .trim()
+    .replace(/^\s+|\s+$/gm, '') // Trim each line
+    .replace(/\n\s*\n/g, '\n'); // Remove empty lines
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -54,27 +86,29 @@ serve(async (req) => {
       cantidad_disponible: p.cantidad_disponible,
     })) || [];
 
-    // Prepare system prompt with product data
+    // Enhanced system prompt for natural, clean Spanish responses
     const systemPrompt = `Eres un asistente de compras especializado para StrateAI. Tu trabajo es ayudar a los usuarios a encontrar productos específicos basándote ÚNICAMENTE en el inventario real disponible.
 
 PRODUCTOS DISPONIBLES:
 ${JSON.stringify(productContext, null, 2)}
 
-REGLAS IMPORTANTES:
+REGLAS CRÍTICAS:
 1. SOLO puedes recomendar productos que existen en la lista anterior
 2. SIEMPRE menciona el precio exacto, categoría y disponibilidad real
 3. Si un producto no está disponible (cantidad_disponible = 0), menciona que está agotado
-4. Proporciona respuestas en español, naturales y útiles
+4. Responde en español natural, conversacional y claro - NUNCA uses markdown, asteriscos, o formateo especial
 5. Si el usuario busca algo que no existe, sugiere alternativas similares del inventario
 6. NUNCA inventes productos o especificaciones que no están en la base de datos
+7. Tus respuestas serán leídas en voz alta, así que deben sonar naturales al hablar
 
 FORMATO DE RESPUESTA:
-- Responde de manera conversacional y útil
-- Incluye detalles específicos como precio, marca, características
+- Responde de manera conversacional, como si hablaras con un amigo
+- Incluye detalles específicos como precio y características
+- Usa lenguaje natural sin formateo especial
 - Al final de tu respuesta, incluye un objeto JSON con los filtros sugeridos en este formato:
 FILTROS_SUGERIDOS: {"categoria": "categoria_exacta", "precioMin": numero, "precioMax": numero, "searchTerm": "termino"}
 
-Ejemplo: Si alguien busca "televisores baratos", responde explicando las opciones y termina con:
+Ejemplo: Si alguien busca "televisores baratos", responde explicando las opciones naturalmente y termina con:
 FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
 
     // Call OpenAI API
@@ -105,11 +139,11 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
     const data = await response.json();
     console.log('OpenAI response received');
 
-    const aiResponse = data.choices[0].message.content;
+    const rawAiResponse = data.choices[0].message.content;
     
-    // Extract filters from AI response
+    // Extract filters from AI response BEFORE cleaning
     let suggestedFilters = {};
-    const filterMatch = aiResponse.match(/FILTROS_SUGERIDOS:\s*({.*?})/);
+    const filterMatch = rawAiResponse.match(/FILTROS_SUGERIDOS:\s*({.*?})/);
     if (filterMatch) {
       try {
         suggestedFilters = JSON.parse(filterMatch[1]);
@@ -119,8 +153,17 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
       }
     }
 
-    // Clean response (remove filter JSON from user-visible text)
-    const cleanResponse = aiResponse.replace(/FILTROS_SUGERIDOS:\s*{.*?}/, '').trim();
+    // CRITICAL: Apply natural language post-processing filter
+    const rawResponseWithoutFilters = rawAiResponse.replace(/FILTROS_SUGERIDOS:\s*{.*?}/, '').trim();
+    const cleanResponse = cleanNaturalLanguageResponse(rawResponseWithoutFilters);
+    
+    console.log('Raw response:', rawResponseWithoutFilters);
+    console.log('Cleaned response:', cleanResponse);
+
+    // Validate cleaned response is not empty
+    if (!cleanResponse || cleanResponse.length < 10) {
+      throw new Error('Cleaned response is too short or empty');
+    }
 
     // Store the bot response in database
     if (conversationId) {
@@ -129,7 +172,7 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
         .insert({
           conversacion_id: conversationId,
           sender: 'bot',
-          content: cleanResponse,
+          content: cleanResponse, // Store cleaned response
         });
 
       if (messageError) {
@@ -140,7 +183,7 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
     console.log('Chat assistant response completed successfully');
 
     return new Response(JSON.stringify({
-      response: cleanResponse,
+      response: cleanResponse, // Return cleaned response
       filters: suggestedFilters,
       success: true
     }), {
@@ -150,9 +193,9 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
   } catch (error) {
     console.error('Error in chat assistant:', error);
     
-    // Return graceful error response
+    // Return graceful error response (also cleaned)
     const errorResponse = {
-      response: 'Lo siento, hubo un problema al procesar tu consulta. Por favor, intenta de nuevo en unos momentos.',
+      response: cleanNaturalLanguageResponse('Lo siento, hubo un problema al procesar tu consulta. Por favor, intenta de nuevo en unos momentos.'),
       filters: {},
       success: false,
       error: error.message
