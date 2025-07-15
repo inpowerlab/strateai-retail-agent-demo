@@ -1,1 +1,11 @@
+
 project_id = "zjapocdwlxbvyakicotx"
+
+[api]
+enabled = true
+
+[auth]
+enabled = true
+
+[functions.chat-assistant]
+verify_jwt = false

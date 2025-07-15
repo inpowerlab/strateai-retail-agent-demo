@@ -23,7 +23,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   const [inputValue, setInputValue] = useState('');
   const [isListening, setIsListening] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const { messages, sendMessage, isSending, startChat } = useChat();
+  const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
 
   useEffect(() => {
     startChat();
@@ -47,53 +47,15 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     setInputValue('');
 
     try {
-      // Send user message
-      await sendMessage({ content: userMessage, sender: 'user' });
+      // Send user message - AI response will be handled automatically
+      sendMessage({ content: userMessage, sender: 'user' });
 
-      // Simulate AI response with keyword-based filtering
-      setTimeout(async () => {
-        const botResponse = `Entiendo que buscas "${userMessage}". Déjame ayudarte a encontrar los productos adecuados.`;
-        await sendMessage({ content: botResponse, sender: 'bot' });
-
-        // Simple keyword-based filtering (will be replaced with AI in Step 3)
-        const filters: ProductFilters = {};
-        const lowerMessage = userMessage.toLowerCase();
-
-        if (lowerMessage.includes('televisor') || lowerMessage.includes('tv')) {
-          filters.categoria = 'Televisores';
-        } else if (lowerMessage.includes('telefono') || lowerMessage.includes('smartphone') || lowerMessage.includes('celular')) {
-          filters.categoria = 'Smartphones';
-        } else if (lowerMessage.includes('laptop') || lowerMessage.includes('computadora')) {
-          filters.categoria = 'Laptops';
-        } else if (lowerMessage.includes('audifonos') || lowerMessage.includes('altavoz') || lowerMessage.includes('audio')) {
-          filters.categoria = 'Audio';
-        }
-
-        // Price filtering
-        const priceMatch = lowerMessage.match(/(\$?)(\d+)/g);
-        if (priceMatch) {
-          const prices = priceMatch.map(p => parseInt(p.replace('$', '')));
-          if (lowerMessage.includes('menos de') || lowerMessage.includes('bajo')) {
-            filters.precioMax = Math.max(...prices);
-          } else if (lowerMessage.includes('mas de') || lowerMessage.includes('sobre')) {
-            filters.precioMin = Math.min(...prices);
-          }
-        }
-
-        onFiltersChange?.(filters);
-
-        // Auto-close after response (optional)
-        setTimeout(() => {
-          onOpenChange(false);
-        }, 3000);
-      }, 1000);
-
+      // Auto-close after sending message (optional)
+      setTimeout(() => {
+        onOpenChange(false);
+      }, 2000);
     } catch (error) {
       console.error('Error sending message:', error);
-      await sendMessage({ 
-        content: 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.', 
-        sender: 'bot' 
-      });
     }
   };
 
@@ -128,7 +90,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   };
 
   const handleStartConversation = () => {
-    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos. Por ejemplo, puedes preguntarme: 'Muéstrame televisores de 55 pulgadas bajo $800' o 'Busco audífonos inalámbricos'. ¿En qué puedo ayudarte hoy?";
+    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: 'Muéstrame televisores de 55 pulgadas bajo $800' o 'Busco audífonos inalámbricos'. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
 
@@ -155,7 +117,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 <div>
                   <SheetTitle className="text-left">Asistente StrateAI</SheetTitle>
                   <SheetDescription className="text-left">
-                    {messages.length === 0 ? 'Listo para ayudarte' : 'En línea'}
+                    {messages.length === 0 ? 'Listo para ayudarte' : 'En línea • Integrado con OpenAI'}
                   </SheetDescription>
                 </div>
               </div>
@@ -169,7 +131,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">¡Comencemos a chatear!</h3>
                 <p className="text-muted-foreground mb-4 max-w-sm">
-                  Pregúntame sobre cualquier producto. Puedo ayudarte a encontrar exactamente lo que buscas.
+                  Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real.
                 </p>
                 <Button onClick={handleStartConversation} variant="outline">
                   Iniciar conversación
@@ -195,7 +157,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                           <span className="text-sm font-medium">Asistente StrateAI</span>
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          Escribiendo...
+                          Analizando productos disponibles...
                         </div>
                       </div>
                     </div>
@@ -211,7 +173,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Pregúntame sobre productos..."
+                placeholder="Pregúntame sobre productos disponibles..."
                 disabled={isSending}
                 className="flex-1"
                 maxLength={500}
@@ -243,7 +205,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
               </Button>
             </form>
             <p className="text-xs text-muted-foreground mt-2">
-              Presiona Enter para enviar • Máximo 500 caracteres • Toca el micrófono para voz
+              Pregúntame sobre productos • Voz disponible • Integrado con OpenAI
             </p>
           </div>
         </SheetContent>

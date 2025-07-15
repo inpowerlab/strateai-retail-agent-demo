@@ -2,10 +2,10 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { ChatMessage, Conversacion, Mensaje } from '@/types/database';
+import { ChatMessage, Conversacion, Mensaje, ProductFilters } from '@/types/database';
 import { v4 as uuidv4 } from 'uuid';
 
-export const useChat = () => {
+export const useChat = (onFiltersChange?: (filters: ProductFilters) => void) => {
   const [sessionId] = useState(() => uuidv4());
   const [conversacionId, setConversacionId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -59,7 +59,7 @@ export const useChat = () => {
     refetchInterval: 1000, // Real-time updates
   });
 
-  // Send message
+  // Send message with AI integration
   const sendMessage = useMutation({
     mutationFn: async ({ content, sender }: { content: string; sender: 'user' | 'bot' }): Promise<void> => {
       let currentConversacionId = conversacionId;
@@ -81,8 +81,8 @@ export const useChat = () => {
         setConversacionId(currentConversacionId);
       }
 
-      // Insert message
-      const { error } = await supabase
+      // Insert user message first
+      const { error: userMessageError } = await supabase
         .from('mensajes')
         .insert({
           conversacion_id: currentConversacionId,
@@ -90,9 +90,42 @@ export const useChat = () => {
           content,
         });
 
-      if (error) {
-        console.error('Error sending message:', error);
+      if (userMessageError) {
+        console.error('Error sending user message:', userMessageError);
         throw new Error('Failed to send message');
+      }
+
+      // If it's a user message, get AI response
+      if (sender === 'user') {
+        console.log('Calling chat assistant for user message:', content);
+        
+        const { data: aiResponse, error: aiError } = await supabase.functions.invoke('chat-assistant', {
+          body: {
+            message: content,
+            conversationId: currentConversacionId,
+          },
+        });
+
+        if (aiError) {
+          console.error('Error calling chat assistant:', aiError);
+          // Insert error message
+          await supabase
+            .from('mensajes')
+            .insert({
+              conversacion_id: currentConversacionId,
+              sender: 'bot',
+              content: 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.',
+            });
+          return;
+        }
+
+        console.log('AI response received:', aiResponse);
+
+        // Apply filters if suggested
+        if (aiResponse.filters && Object.keys(aiResponse.filters).length > 0) {
+          console.log('Applying suggested filters:', aiResponse.filters);
+          onFiltersChange?.(aiResponse.filters);
+        }
       }
     },
     onSuccess: () => {
