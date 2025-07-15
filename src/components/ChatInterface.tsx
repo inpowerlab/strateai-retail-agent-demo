@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Send, MessageSquare, Loader2 } from 'lucide-react';
+import { Send, MessageSquare, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { useChat } from '@/hooks/useChat';
+import { useSpeechToText } from '@/hooks/useSpeechToText';
+import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { ProductFilters } from '@/types/database';
 
 interface ChatInterfaceProps {
@@ -17,6 +19,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
+  
+  const {
+    isListening,
+    transcript,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscript,
+    isSupported: speechSupported
+  } = useSpeechToText();
+
+  const {
+    isSpeaking,
+    error: ttsError,
+    speak,
+    stop: stopSpeaking,
+    isSupported: ttsSupported,
+    isMuted,
+    toggleMute
+  } = useTextToSpeech();
 
   useEffect(() => {
     startChat();
@@ -32,6 +54,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   }, [messages]);
 
+  // Handle voice transcript
+  useEffect(() => {
+    if (transcript) {
+      setInputValue(transcript);
+      resetTranscript();
+    }
+  }, [transcript, resetTranscript]);
+
+  // Auto-speak bot messages
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.sender === 'bot' && ttsSupported && !isMuted) {
+      // Small delay to ensure message is rendered
+      setTimeout(() => {
+        speak(lastMessage.content);
+      }, 300);
+    }
+  }, [messages, speak, ttsSupported, isMuted]);
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || isSending) return;
@@ -40,10 +81,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     setInputValue('');
 
     try {
-      // Send user message - AI response will be handled automatically by the hook
       sendMessage({ content: userMessage, sender: 'user' });
     } catch (error) {
       console.error('Error sending message:', error);
+    }
+  };
+
+  const handleVoiceToggle = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
     }
   };
 
@@ -60,11 +108,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
             <MessageSquare className="h-4 w-4 text-primary-foreground" />
           </div>
-          <div>
+          <div className="flex-1">
             <h2 className="font-semibold">Asistente StrateAI</h2>
             <p className="text-xs text-muted-foreground">
               {messages.length === 0 ? 'Listo para ayudarte' : 'En línea • Integrado con OpenAI'}
             </p>
+          </div>
+          {/* Voice Controls */}
+          <div className="flex items-center gap-2">
+            {ttsSupported && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={toggleMute}
+                className="h-8 w-8 p-0"
+                title={isMuted ? 'Activar voz' : 'Silenciar voz'}
+              >
+                {isMuted ? (
+                  <VolumeX className="h-4 w-4" />
+                ) : (
+                  <Volume2 className="h-4 w-4" />
+                )}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -76,7 +142,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">¡Comencemos a chatear!</h3>
             <p className="text-muted-foreground mb-4 max-w-sm">
-              Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real y puedo ayudarte a encontrar exactamente lo que buscas.
+              Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real y puedo ayudarte a encontrar exactamente lo que buscas. También puedes usar tu voz para hablar conmigo.
             </p>
             <Button onClick={handleStartConversation} variant="outline">
               Iniciar conversación
@@ -112,6 +178,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         )}
       </ScrollArea>
 
+      {/* Voice/TTS Error Messages */}
+      {(speechError || ttsError) && (
+        <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-200">
+          <p className="text-xs text-yellow-700">
+            {speechError || ttsError}
+          </p>
+        </div>
+      )}
+
       {/* Input Area */}
       <div className="p-4 border-t bg-background/95 backdrop-blur-sm">
         <form onSubmit={handleSendMessage} className="flex gap-2">
@@ -123,6 +198,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             className="flex-1"
             maxLength={500}
           />
+          {speechSupported && (
+            <Button
+              type="button"
+              onClick={handleVoiceToggle}
+              disabled={isSending}
+              size="icon"
+              variant="outline"
+              className={`transition-colors ${
+                isListening ? "bg-red-100 text-red-600 border-red-300 animate-pulse" : ""
+              }`}
+              title={isListening ? 'Parar grabación' : 'Iniciar grabación de voz'}
+            >
+              {isListening ? (
+                <MicOff className="h-4 w-4" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+            </Button>
+          )}
           <Button 
             type="submit" 
             disabled={!inputValue.trim() || isSending}
@@ -136,7 +230,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           </Button>
         </form>
         <p className="text-xs text-muted-foreground mt-2">
-          Presiona Enter para enviar • Máximo 500 caracteres • Integrado con OpenAI
+          Presiona Enter para enviar • Máximo 500 caracteres • {speechSupported ? 'Voz disponible' : 'Solo texto'} • Integrado con OpenAI
         </p>
       </div>
     </div>
