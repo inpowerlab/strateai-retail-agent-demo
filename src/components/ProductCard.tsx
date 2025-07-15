@@ -37,7 +37,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onClick }) =>
             {product.categoria}
           </Badge>
         </div>
-        {/* Video indicator */}
+        {/* Video indicator - only show if video_url exists */}
         {product.video_url && (
           <div className="absolute bottom-2 left-2">
             <Badge variant="default" className="bg-primary/90 backdrop-blur-sm text-xs">

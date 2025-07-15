@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { X, ChevronLeft, ChevronRight, Play, Pause } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Producto } from '@/types/database';
 
 interface ProductQuickViewProps {
@@ -18,21 +18,19 @@ export const ProductQuickView: React.FC<ProductQuickViewProps> = ({
   onClose,
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
   // Reset state when product changes
   useEffect(() => {
     if (product) {
       setCurrentImageIndex(0);
-      setIsVideoPlaying(false);
       setVideoError(false);
     }
   }, [product]);
 
   if (!product) return null;
 
-  // Combine main image with additional images
+  // Combine main image with additional images - handle null/undefined arrays safely
   const allImages = [
     product.imagen_url,
     ...(product.imagenes_urls || [])
@@ -93,7 +91,7 @@ export const ProductQuickView: React.FC<ProductQuickViewProps> = ({
                     }}
                   />
                   
-                  {/* Navigation Arrows */}
+                  {/* Navigation Arrows - only show if multiple images */}
                   {allImages.length > 1 && (
                     <>
                       <Button
@@ -115,7 +113,7 @@ export const ProductQuickView: React.FC<ProductQuickViewProps> = ({
                     </>
                   )}
 
-                  {/* Image Indicators */}
+                  {/* Image Indicators - only show if multiple images */}
                   {allImages.length > 1 && (
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
                       {allImages.map((_, index) => (
@@ -137,7 +135,7 @@ export const ProductQuickView: React.FC<ProductQuickViewProps> = ({
               )}
             </div>
 
-            {/* Video Section */}
+            {/* Video Section - only render if video_url exists and no error */}
             {product.video_url && !videoError && (
               <div className="aspect-video bg-black">
                 {isYouTubeUrl(product.video_url) ? (
