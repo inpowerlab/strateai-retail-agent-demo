@@ -45,7 +45,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
   return (
     <div className="flex flex-col h-full">
       {/* Filters Header */}
-      <div className="p-4 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+      <div className="p-4 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10 flex-shrink-0">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
             <h2 className="text-xl font-semibold">Productos</h2>
@@ -55,12 +55,12 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
               </span>
             )}
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center w-full sm:w-auto">
             <Select
               value={filters?.categoria || 'all'}
               onValueChange={handleCategoryChange}
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="Categoría" />
               </SelectTrigger>
               <SelectContent>
@@ -81,37 +81,39 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
         </div>
       </div>
 
-      {/* Products Grid */}
-      <div className="flex-1 overflow-auto p-4">
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="space-y-3">
-                <Skeleton className="aspect-square w-full" />
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-8 w-1/3" />
-              </div>
-            ))}
-          </div>
-        ) : products && products.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {products.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-center">
-            <Package className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No se encontraron productos</h3>
-            <p className="text-muted-foreground mb-4">
-              Intenta ajustar los filtros de búsqueda
-            </p>
-            <Button variant="outline" onClick={clearFilters}>
-              Ver todos los productos
-            </Button>
-          </div>
-        )}
+      {/* Products Grid - Mobile Optimized */}
+      <div className="flex-1 overflow-auto">
+        <div className="p-4">
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="space-y-3">
+                  <Skeleton className="aspect-square w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-8 w-1/3" />
+                </div>
+              ))}
+            </div>
+          ) : products && products.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {products.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8">
+              <Package className="h-16 w-16 text-muted-foreground mb-4" />
+              <h3 className="text-xl font-semibold mb-2">No se encontraron productos</h3>
+              <p className="text-muted-foreground mb-4 max-w-md">
+                Intenta ajustar los filtros de búsqueda o usa el chat para encontrar productos específicos
+              </p>
+              <Button variant="outline" onClick={clearFilters}>
+                Ver todos los productos
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
