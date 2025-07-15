@@ -44,7 +44,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
 
   return (
     <div className="flex flex-col h-full">
-      {/* Filters Header */}
+      {/* Filters Header - Fixed at top */}
       <div className="p-4 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10 flex-shrink-0">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
@@ -81,7 +81,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ filters, onFiltersChan
         </div>
       </div>
 
-      {/* Products Grid - Mobile Optimized */}
+      {/* Products Grid - Fully Scrollable Container */}
       <div className="flex-1 overflow-auto">
         <div className="p-4">
           {isLoading ? (
