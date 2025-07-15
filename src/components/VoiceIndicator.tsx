@@ -31,88 +31,90 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
   className = ""
 }) => {
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      {/* Listening Indicator */}
+    <div className={`flex items-center gap-3 ${className}`}>
+      {/* Enhanced Listening Indicator for POS visibility */}
       {(isListening || speechInitializing) && (
-        <div className="flex items-center gap-2 text-blue-600 animate-pulse">
+        <div className="flex items-center gap-3 text-blue-600 bg-blue-50 px-4 py-2 rounded-full border-2 border-blue-200 shadow-lg">
           <div className="relative">
-            <Mic className="h-5 w-5" />
-            <div className="absolute -inset-1 bg-blue-500/20 rounded-full animate-ping" />
+            <Mic className="h-7 w-7 text-blue-600" />
+            <div className="absolute -inset-2 bg-blue-400/30 rounded-full animate-ping" />
+            <div className="absolute -inset-1 bg-blue-500/20 rounded-full animate-pulse" />
           </div>
-          <span className="text-sm font-medium">
-            {speechInitializing ? 'Iniciando...' : 'Escuchando'}
+          <span className="text-lg font-bold text-blue-700">
+            {speechInitializing ? 'Iniciando micrófono...' : 'Te estoy escuchando'}
           </span>
         </div>
       )}
 
-      {/* Speaking Indicator with Controls */}
+      {/* Enhanced Speaking Indicator with POS-friendly controls */}
       {(isSpeaking || ttsInitializing) && (
-        <div className="flex items-center gap-2 text-green-600">
+        <div className="flex items-center gap-3 text-green-600 bg-green-50 px-4 py-2 rounded-full border-2 border-green-200 shadow-lg">
           <div className="relative">
-            <Volume2 className="h-5 w-5 animate-pulse" />
-            <div className="absolute -inset-1 bg-green-500/20 rounded-full animate-ping" />
+            <Volume2 className="h-7 w-7 text-green-600 animate-pulse" />
+            <div className="absolute -inset-2 bg-green-400/30 rounded-full animate-ping" />
+            <div className="absolute -inset-1 bg-green-500/20 rounded-full animate-pulse" />
           </div>
-          <span className="text-sm font-medium">
-            {ttsInitializing ? 'Preparando...' : 'Hablando'}
+          <span className="text-lg font-bold text-green-700">
+            {ttsInitializing ? 'Preparando respuesta...' : 'Reproduciendo respuesta'}
           </span>
           
-          {/* Stop Button */}
+          {/* Large Stop Button for POS */}
           {isSpeaking && onStopSpeaking && (
             <Button
-              size="sm"
-              variant="ghost"
+              size="lg"
+              variant="outline"
               onClick={onStopSpeaking}
-              className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="h-10 w-10 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 border-2 border-red-300 shadow-md"
               title="Parar reproducción"
               aria-label="Parar reproducción de voz"
             >
-              <Square className="h-3 w-3 fill-current" />
+              <Square className="h-5 w-5 fill-current" />
             </Button>
           )}
         </div>
       )}
 
-      {/* Audio Controls */}
+      {/* Enhanced Audio Controls for POS */}
       {ttsSupported && !isSpeaking && !ttsInitializing && (
-        <div className="flex items-center gap-1">
-          {/* Replay Button */}
+        <div className="flex items-center gap-2">
+          {/* Large Replay Button */}
           {onReplay && (
             <Button
-              size="sm"
-              variant="ghost"
+              size="lg"
+              variant="outline"
               onClick={onReplay}
-              className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+              className="h-12 w-12 p-0 text-muted-foreground hover:text-primary border-2 shadow-md"
               title="Repetir último mensaje"
               aria-label="Repetir último mensaje hablado"
             >
-              <RotateCcw className="h-3 w-3" />
+              <RotateCcw className="h-5 w-5" />
             </Button>
           )}
 
-          {/* Mute Toggle */}
+          {/* Large Mute Toggle */}
           {onToggleMute && (
             <Button
-              size="sm"
-              variant="ghost"
+              size="lg"
+              variant="outline"
               onClick={onToggleMute}
-              className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+              className="h-12 w-12 p-0 text-muted-foreground hover:text-primary border-2 shadow-md"
               title={isMuted ? 'Activar voz' : 'Silenciar voz'}
               aria-label={isMuted ? 'Activar síntesis de voz' : 'Silenciar síntesis de voz'}
             >
               {isMuted ? (
-                <VolumeX className="h-3 w-3" />
+                <VolumeX className="h-5 w-5" />
               ) : (
-                <Volume2 className="h-3 w-3" />
+                <Volume2 className="h-5 w-5" />
               )}
             </Button>
           )}
         </div>
       )}
 
-      {/* Voice Not Supported Message */}
+      {/* Voice Not Available Message - Enhanced for POS */}
       {!speechSupported && !ttsSupported && (
-        <div className="text-xs text-muted-foreground">
-          Voz no disponible en este navegador
+        <div className="text-base font-medium text-muted-foreground bg-muted/50 px-4 py-2 rounded-full border">
+          Funciones de voz no disponibles
         </div>
       )}
     </div>
