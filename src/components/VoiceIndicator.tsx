@@ -2,6 +2,7 @@
 import React from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Square, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { VoiceStatusIndicator } from './VoiceStatusIndicator';
 import { VoiceSelectionResult } from '@/utils/voiceSelection';
 
@@ -14,6 +15,8 @@ interface VoiceIndicatorProps {
   ttsSupported: boolean;
   isMuted: boolean;
   currentVoiceInfo?: VoiceSelectionResult | null;
+  currentTTSMethod?: 'google' | 'openai' | 'browser' | null;
+  currentVoiceName?: string | null;
   onStopSpeaking?: () => void;
   onReplay?: () => void;
   onToggleMute?: () => void;
@@ -29,11 +32,32 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
   ttsSupported,
   isMuted,
   currentVoiceInfo,
+  currentTTSMethod,
+  currentVoiceName,
   onStopSpeaking,
   onReplay,
   onToggleMute,
   className = ""
 }) => {
+  const getTTSMethodBadge = () => {
+    if (!currentTTSMethod) return null;
+    
+    const methodInfo = {
+      google: { label: 'Google Cloud Premium', color: 'bg-purple-100 text-purple-700', icon: '🌩️' },
+      openai: { label: 'OpenAI NOVA', color: 'bg-green-100 text-green-700', icon: '🤖' },
+      browser: { label: 'Browser Fallback', color: 'bg-blue-100 text-blue-700', icon: '🌐' }
+    };
+    
+    const info = methodInfo[currentTTSMethod];
+    if (!info) return null;
+    
+    return (
+      <Badge className={`${info.color} border-0 font-medium`}>
+        {info.icon} {info.label}
+      </Badge>
+    );
+  };
+
   return (
     <div className={`space-y-3 ${className}`}>
       {/* Enhanced Listening Indicator for POS visibility */}
@@ -50,7 +74,7 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
         </div>
       )}
 
-      {/* Enhanced Speaking Indicator with OpenAI/Browser distinction */}
+      {/* Enhanced Speaking Indicator with method distinction */}
       {(isSpeaking || ttsInitializing) && (
         <div className="flex items-center gap-3 text-green-600 bg-green-50 px-4 py-2 rounded-full border-2 border-green-200 shadow-lg">
           <div className="relative">
@@ -58,9 +82,17 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
             <div className="absolute -inset-2 bg-green-400/30 rounded-full animate-ping" />
             <div className="absolute -inset-1 bg-green-500/20 rounded-full animate-pulse" />
           </div>
-          <span className="text-lg font-bold text-green-700">
-            {ttsInitializing ? 'Preparando respuesta...' : 'Reproduciendo • OpenAI NOVA'}
-          </span>
+          <div className="flex flex-col">
+            <span className="text-lg font-bold text-green-700">
+              {ttsInitializing ? 'Preparando respuesta...' : 'Reproduciendo'}
+            </span>
+            {currentVoiceName && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-green-600">{currentVoiceName}</span>
+                {getTTSMethodBadge()}
+              </div>
+            )}
+          </div>
           
           {/* Large Stop Button for POS */}
           {isSpeaking && onStopSpeaking && (
@@ -79,16 +111,23 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
       )}
 
       {/* Voice Status Display - Always visible when TTS is supported */}
-      {ttsSupported && currentVoiceInfo && (
+      {ttsSupported && (currentVoiceInfo || currentVoiceName) && (
         <div className="bg-muted/50 px-4 py-2 rounded-lg border">
-          <VoiceStatusIndicator 
-            voiceInfo={currentVoiceInfo} 
-            compact={true}
-          />
+          {currentVoiceInfo ? (
+            <VoiceStatusIndicator 
+              voiceInfo={currentVoiceInfo} 
+              compact={true}
+            />
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">{currentVoiceName}</span>
+              {getTTSMethodBadge()}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Enhanced Audio Controls for POS with OpenAI support */}
+      {/* Enhanced Audio Controls for POS */}
       {ttsSupported && !isSpeaking && !ttsInitializing && (
         <div className="flex items-center gap-2">
           {/* Large Replay Button */}
@@ -98,7 +137,7 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
               variant="outline"
               onClick={onReplay}
               className="h-12 w-12 p-0 text-muted-foreground hover:text-primary border-2 shadow-md"
-              title="Repetir último mensaje (OpenAI NOVA)"
+              title="Repetir último mensaje"
               aria-label="Repetir último mensaje hablado"
             >
               <RotateCcw className="h-5 w-5" />
@@ -125,10 +164,10 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
         </div>
       )}
 
-      {/* OpenAI TTS Status Message */}
+      {/* Premium TTS Status Message */}
       {ttsSupported && (
         <div className="text-sm font-medium text-muted-foreground bg-primary/5 px-3 py-2 rounded-lg border border-primary/20">
-          🎤 OpenAI NOVA TTS + Fallback Automático Activado
+          🎤 Sistema Premium: Google Cloud + OpenAI + Fallback Automático
         </div>
       )}
 
