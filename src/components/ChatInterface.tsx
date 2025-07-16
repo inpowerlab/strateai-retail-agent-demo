@@ -9,7 +9,7 @@ import { ChatMessage } from './ChatMessage';
 import { VoiceIndicator } from './VoiceIndicator';
 import { useChat } from '@/hooks/useChat';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
-import { useOpenAITTS } from '@/hooks/useOpenAITTS';
+import { useEnhancedGoogleTTS } from '@/hooks/useEnhancedGoogleTTS';
 import { ProductFilters } from '@/types/database';
 import { VoiceAuditDisplay } from './VoiceAuditDisplay';
 
@@ -49,7 +49,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     silenceTimeout: 3000
   });
 
-  // Use the new OpenAI TTS hook with browser fallback
+  // Use the enhanced Google TTS hook with comprehensive audit capabilities
   const {
     speak,
     stop: stopSpeaking,
@@ -59,16 +59,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     error: ttsError,
     currentMethod,
     currentVoice,
-    lastPlayedText
-  } = useOpenAITTS({
-    voice: 'nova',
+    lastPlayedText,
+    auditReports,
+    getLatestAuditReport
+  } = useEnhancedGoogleTTS({
+    voice: 'es-US-Journey-F',
     speed: 1.0,
-    language: 'es',
-    enableFallback: true
+    enableFallback: true,
+    auditMode: true // Enable comprehensive auditing
   });
 
-  const isSupported = speechSupported; // For voice input
-  const ttsSupported = true; // OpenAI TTS is always supported with fallback
+  const isSupported = speechSupported;
+  const ttsSupported = true;
 
   useEffect(() => {
     startChat();
@@ -101,7 +103,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   }, [transcript, resetTranscript, sendMessage]);
 
-  // AUTO-PLAY TTS: Immediate voice response after bot reply using OpenAI NOVA
+  // ENHANCED AUTO-PLAY TTS: Immediate voice response with comprehensive audit logging
   useEffect(() => {
     if (messages.length === 0 || isSending) return;
 
@@ -112,19 +114,36 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         lastMessage.id !== lastBotMessageIdRef.current &&
         lastMessage.content.length > 0) {
       
-      console.log(`🤖 Auto-playing OpenAI NOVA TTS for new bot message: ${lastMessage.id}`);
+      console.log(`🤖 Auto-playing Google Cloud TTS for new bot message: ${lastMessage.id}`);
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Auto-play TTS with OpenAI NOVA and browser fallback
+      // Auto-play TTS with comprehensive audit logging
       speak(lastMessage.content).then(result => {
+        const auditReport = getLatestAuditReport();
+        
         if (result.success) {
           console.log(`✅ TTS Success with ${result.method}: ${result.voice}`);
+          if (auditReport) {
+            console.log(`📊 Audit Report:`, {
+              latency: auditReport.metrics.totalLatency,
+              method: auditReport.metrics.method,
+              voice: auditReport.voiceSelection.actualVoice,
+              recommendations: auditReport.recommendations
+            });
+          }
         } else {
           console.error(`❌ TTS Failed: ${result.error}`);
+          if (auditReport) {
+            console.error(`📊 Failure Audit:`, {
+              errors: auditReport.metrics.errors,
+              fallbackReason: auditReport.metrics.fallbackReason,
+              recommendations: auditReport.recommendations
+            });
+          }
         }
       });
     }
-  }, [messages, speak, isSending]);
+  }, [messages, speak, isSending, getLatestAuditReport]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,25 +176,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   };
 
   const handleStartConversation = async () => {
-    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI con voz NOVA de OpenAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
+    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI con voz premium de Google Cloud. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
 
-  // Display current TTS method and voice info
+  // Display current TTS method and voice info with audit details
   const getTTSStatusText = () => {
-    if (currentMethod === 'openai') {
-      return `🎤 NOVA (OpenAI) • Activo`;
+    const latestAudit = getLatestAuditReport();
+    
+    if (currentMethod === 'google') {
+      const latency = latestAudit?.metrics.totalLatency;
+      return `🌩️ Google Cloud Premium • ${latency ? `${latency}ms` : 'Active'}`;
     } else if (currentMethod === 'browser') {
-      return `🗣️ ${currentVoice} • Fallback Activo`;
+      const reason = latestAudit?.metrics.fallbackReason;
+      return `🗣️ ${currentVoice} • Fallback${reason ? ` (${reason})` : ''}`;
     } else if (lastPlayedText) {
-      return `🔊 TTS Disponible • Última: ${currentMethod || 'OpenAI'}`;
+      return `🔊 TTS Disponible • Última: ${currentMethod || 'Google Cloud'}`;
     }
-    return `🎵 OpenAI NOVA + Fallback • Listo`;
+    return `🎵 Google Cloud Premium + Fallback • Sistema Auditado`;
   };
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Enhanced Chat Header with OpenAI TTS Status */}
+      {/* Enhanced Chat Header with Google Cloud TTS Status */}
       <div className="p-6 border-b bg-gradient-to-r from-primary/5 to-primary/10 backdrop-blur-sm">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg">
@@ -185,7 +208,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             <h2 className="text-xl font-bold">Asistente StrateAI</h2>
             <p className="text-sm text-muted-foreground font-medium">
               {messages.length === 0 
-                ? 'Listo para ayudarte con tus compras • OpenAI NOVA Voice' 
+                ? 'Listo para ayudarte con tus compras • Google Cloud Premium Voice' 
                 : getTTSStatusText()}
             </p>
           </div>
@@ -206,7 +229,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           </div>
         )}
         
-        {/* Enhanced Voice Indicator with OpenAI Status */}
+        {/* Enhanced Voice Indicator with Google Cloud Status */}
         <div className="mt-4">
           <VoiceIndicator
             isListening={isListening}
@@ -222,7 +245,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             className="justify-start"
           />
           
-          {/* OpenAI TTS Status Display */}
+          {/* Enhanced TTS Status Display with Audit Info */}
           {(currentMethod || ttsError) && (
             <div className="mt-2 p-2 rounded-lg bg-muted/30 text-sm">
               {ttsError ? (
@@ -231,9 +254,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
                 </div>
               ) : (
                 <div className="text-muted-foreground">
-                  🎵 TTS Active: {currentMethod === 'openai' ? 'OpenAI NOVA' : `Browser ${currentVoice}`}
+                  🎵 TTS Active: {currentMethod === 'google' ? 'Google Cloud Premium (Chirp3-HD)' : `Browser ${currentVoice}`}
                   {currentMethod === 'browser' && (
-                    <span className="ml-2 text-amber-600">• Fallback Mode</span>
+                    <span className="ml-2 text-amber-600">• Fallback Mode (Audit Available)</span>
+                  )}
+                  {auditReports.length > 0 && (
+                    <span className="ml-2 text-blue-600">• {auditReports.length} Audit Reports</span>
                   )}
                 </div>
               )}
@@ -255,9 +281,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
               {speechSupported && ' También puedes usar tu voz para hablar conmigo.'}
             </p>
             <div className="mb-4 p-3 bg-primary/10 rounded-lg border border-primary/20">
-              <div className="text-sm font-medium text-primary mb-1">🎤 Voz Premium Activada</div>
+              <div className="text-sm font-medium text-primary mb-1">🌩️ Voz Premium Activada</div>
               <div className="text-xs text-muted-foreground">
-                OpenAI NOVA + Fallback automático a voces del sistema
+                Google Cloud Text-to-Speech (Chirp3-HD) + Fallback automático + Sistema de auditoría
               </div>
             </div>
             <Button onClick={handleStartConversation} size="lg" className="h-12 px-8 text-lg font-semibold shadow-lg">
@@ -315,7 +341,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             maxLength={500}
           />
           
-          {/* ENHANCED MICROPHONE BUTTON with OpenAI integration note */}
+          {/* ENHANCED MICROPHONE BUTTON with Google Cloud integration note */}
           {speechSupported && (
             <Button
               type="button"
@@ -365,11 +391,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           </Button>
         </form>
         
-        {/* Enhanced Status Text with OpenAI info */}
+        {/* Enhanced Status Text with Google Cloud info */}
         <div className="mt-3 text-center">
           <p className="text-sm text-muted-foreground font-medium">
             <span className="inline-flex items-center gap-1">
-              🎤 OpenAI NOVA TTS + Browser Fallback
+              🌩️ Google Cloud Premium TTS + Browser Fallback
             </span>
             {speechSupported && (
               <>
@@ -385,10 +411,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
               <Send className="h-4 w-4" />
               Toca el botón verde para enviar
             </span>
-            {lastPlayedText && (
+            {auditReports.length > 0 && (
               <>
                 <span className="mx-2">•</span>
-                <span>Respuesta disponible para repetir</span>
+                <span>{auditReports.length} reportes de auditoría disponibles</span>
               </>
             )}
           </p>
