@@ -45,12 +45,12 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
             <div className="absolute -inset-1 bg-blue-500/20 rounded-full animate-pulse" />
           </div>
           <span className="text-lg font-bold text-blue-700">
-            {speechInitializing ? 'Iniciando micrófono...' : 'Te estoy escuchando'}
+            {speechInitializing ? 'Iniciando micrófono...' : 'Te estoy escuchando • Whisper STT'}
           </span>
         </div>
       )}
 
-      {/* Enhanced Speaking Indicator with POS-friendly controls */}
+      {/* Enhanced Speaking Indicator with OpenAI/Browser distinction */}
       {(isSpeaking || ttsInitializing) && (
         <div className="flex items-center gap-3 text-green-600 bg-green-50 px-4 py-2 rounded-full border-2 border-green-200 shadow-lg">
           <div className="relative">
@@ -59,7 +59,7 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
             <div className="absolute -inset-1 bg-green-500/20 rounded-full animate-pulse" />
           </div>
           <span className="text-lg font-bold text-green-700">
-            {ttsInitializing ? 'Preparando respuesta...' : 'Reproduciendo respuesta'}
+            {ttsInitializing ? 'Preparando respuesta...' : 'Reproduciendo • OpenAI NOVA'}
           </span>
           
           {/* Large Stop Button for POS */}
@@ -88,7 +88,7 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
         </div>
       )}
 
-      {/* Enhanced Audio Controls for POS */}
+      {/* Enhanced Audio Controls for POS with OpenAI support */}
       {ttsSupported && !isSpeaking && !ttsInitializing && (
         <div className="flex items-center gap-2">
           {/* Large Replay Button */}
@@ -98,7 +98,7 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
               variant="outline"
               onClick={onReplay}
               className="h-12 w-12 p-0 text-muted-foreground hover:text-primary border-2 shadow-md"
-              title="Repetir último mensaje"
+              title="Repetir último mensaje (OpenAI NOVA)"
               aria-label="Repetir último mensaje hablado"
             >
               <RotateCcw className="h-5 w-5" />
@@ -122,6 +122,13 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
               )}
             </Button>
           )}
+        </div>
+      )}
+
+      {/* OpenAI TTS Status Message */}
+      {ttsSupported && (
+        <div className="text-sm font-medium text-muted-foreground bg-primary/5 px-3 py-2 rounded-lg border border-primary/20">
+          🎤 OpenAI NOVA TTS + Fallback Automático Activado
         </div>
       )}
 

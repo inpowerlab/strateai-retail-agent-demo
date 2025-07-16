@@ -1,236 +1,307 @@
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { 
+  selectBestVoice, 
+  VoiceSelectionResult 
+} from '@/utils/voiceSelection';
 
 interface OpenAITTSOptions {
-  voice?: 'nova' | 'onyx' | 'alloy';
+  voice?: string;
   speed?: number;
-  fallbackToNative?: boolean;
+  language?: string;
+  enableFallback?: boolean;
 }
 
-interface OpenAITTSReturn {
-  speak: (text: string, options?: OpenAITTSOptions) => Promise<boolean>;
-  stop: () => void;
-  isSpeaking: boolean;
-  isLoading: boolean;
-  error: string | null;
-  lastUsedMethod: 'openai' | 'native' | null;
-  audioElement: HTMLAudioElement | null;
+interface TTSPlaybackResult {
+  success: boolean;
+  method: 'openai' | 'browser' | 'failed';
+  voice?: string;
+  error?: string;
+  fallbackUsed?: boolean;
 }
 
-export const useOpenAITTS = (): OpenAITTSReturn => {
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+export const useOpenAITTS = (options: OpenAITTSOptions = {}) => {
+  const {
+    voice = 'nova',
+    speed = 1.0,
+    language = 'es',
+    enableFallback = true
+  } = options;
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUsedMethod, setLastUsedMethod] = useState<'openai' | 'native' | null>(null);
-  
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
-  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [currentMethod, setCurrentMethod] = useState<'openai' | 'browser' | null>(null);
+  const [currentVoice, setCurrentVoice] = useState<string | null>(null);
+  const [lastPlayedText, setLastPlayedText] = useState<string | null>(null);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const fallbackVoiceRef = useRef<VoiceSelectionResult | null>(null);
 
   // Clean up audio resources
   const cleanup = useCallback(() => {
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current.removeEventListener('ended', () => setIsSpeaking(false));
-      audioElementRef.current.removeEventListener('error', () => setIsSpeaking(false));
-      audioElementRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
     }
     
-    if (currentUtteranceRef.current) {
+    if (utteranceRef.current) {
       window.speechSynthesis.cancel();
-      currentUtteranceRef.current = null;
+      utteranceRef.current = null;
     }
+    
+    setIsPlaying(false);
+    setIsInitializing(false);
   }, []);
 
-  // Native TTS fallback for Spanish female voices
-  const speakWithNativeTTS = useCallback((text: string): Promise<boolean> => {
-    return new Promise((resolve) => {
-      try {
-        console.log('🔄 Attempting native TTS fallback...');
-        
-        const voices = window.speechSynthesis.getVoices();
-        const spanishFemaleVoice = voices.find(voice => 
-          voice.lang.startsWith('es') && (
-            voice.name.toLowerCase().includes('mónica') ||
-            voice.name.toLowerCase().includes('elena') ||
-            voice.name.toLowerCase().includes('conchita') ||
-            voice.name.toLowerCase().includes('paulina')
-          )
-        );
-
-        if (!spanishFemaleVoice) {
-          console.warn('⚠️ No suitable Spanish female voice found for native fallback');
-          setError('No Spanish female voice available');
-          resolve(false);
-          return;
-        }
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.voice = spanishFemaleVoice;
-        utterance.lang = 'es-ES';
-        utterance.rate = 0.9;
-        utterance.pitch = 1.1;
-        utterance.volume = 0.9;
-
-        utterance.onstart = () => {
-          console.log('🗣️ Native TTS started with voice:', spanishFemaleVoice.name);
-          setIsSpeaking(true);
-          setLastUsedMethod('native');
-        };
-
-        utterance.onend = () => {
-          console.log('✅ Native TTS completed');
-          setIsSpeaking(false);
-          resolve(true);
-        };
-
-        utterance.onerror = (event) => {
-          console.error('❌ Native TTS error:', event.error);
-          setError(`Native TTS failed: ${event.error}`);
-          setIsSpeaking(false);
-          resolve(false);
-        };
-
-        currentUtteranceRef.current = utterance;
-        window.speechSynthesis.speak(utterance);
-
-      } catch (error) {
-        console.error('❌ Native TTS exception:', error);
-        setError(`Native TTS exception: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        resolve(false);
-      }
-    });
-  }, []);
-
-  // Main OpenAI TTS function
-  const speak = useCallback(async (text: string, options: OpenAITTSOptions = {}): Promise<boolean> => {
-    const {
-      voice = 'nova',
-      speed = 1.0,
-      fallbackToNative = true
-    } = options;
-
-    // Reset state
-    setError(null);
-    setIsLoading(true);
-    cleanup();
-
+  // OpenAI TTS via Edge Function
+  const playWithOpenAI = useCallback(async (text: string): Promise<TTSPlaybackResult> => {
     try {
-      console.log('🔊 Requesting OpenAI TTS...', { voice, speed, textLength: text.length });
-
-      // Call OpenAI TTS Edge Function
-      const { data, error: supabaseError } = await supabase.functions.invoke('openai-tts', {
+      console.log('🎤 [OpenAI TTS] Starting playback with NOVA voice');
+      
+      const { data, error: functionError } = await supabase.functions.invoke('openai-tts', {
         body: {
           text,
-          lang: 'es',
           voice,
-          speed
+          speed,
+          lang: language
         }
       });
 
-      if (supabaseError) {
-        console.error('❌ Supabase function error:', supabaseError);
-        throw new Error(`TTS service error: ${supabaseError.message}`);
+      if (functionError || !data) {
+        throw new Error(functionError?.message || 'Failed to call TTS function');
       }
 
       if (!data.success) {
-        console.warn('⚠️ OpenAI TTS failed:', data.error);
+        const shouldFallback = data.fallbackRequired;
+        console.warn('🚨 [OpenAI TTS] Failed:', data.error, shouldFallback ? '(fallback enabled)' : '');
         
-        if (data.fallbackRequired && fallbackToNative) {
-          console.log('🔄 Attempting native TTS fallback...');
-          setIsLoading(false);
-          return await speakWithNativeTTS(text);
+        if (shouldFallback && enableFallback) {
+          return { success: false, method: 'failed', error: data.error, fallbackUsed: true };
         }
         
-        throw new Error(data.error || 'OpenAI TTS failed');
+        throw new Error(data.error || 'TTS generation failed');
       }
 
-      // Play OpenAI audio
-      if (data.audioData) {
-        console.log('🎵 Playing OpenAI TTS audio...');
-        
-        const audioBlob = new Blob(
-          [Uint8Array.from(atob(data.audioData), c => c.charCodeAt(0))],
-          { type: 'audio/mpeg' }
-        );
-        
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        
-        audio.addEventListener('loadstart', () => {
-          console.log('📡 Audio loading started...');
-        });
-        
-        audio.addEventListener('canplay', () => {
-          console.log('▶️ Audio ready to play');
-        });
-        
-        audio.addEventListener('play', () => {
-          console.log('🔊 OpenAI TTS playback started');
-          setIsSpeaking(true);
-          setLastUsedMethod('openai');
-          setIsLoading(false);
-        });
-        
-        audio.addEventListener('ended', () => {
-          console.log('✅ OpenAI TTS playback completed');
-          setIsSpeaking(false);
-          URL.revokeObjectURL(audioUrl);
-        });
-        
-        audio.addEventListener('error', (e) => {
-          console.error('❌ Audio playback error:', e);
-          setError('Audio playback failed');
-          setIsSpeaking(false);
-          setIsLoading(false);
-          URL.revokeObjectURL(audioUrl);
-        });
+      // Play the audio
+      const audio = new Audio();
+      audioRef.current = audio;
+      
+      return new Promise((resolve) => {
+        audio.onloadeddata = () => {
+          console.log('🔊 [OpenAI TTS] Audio loaded, starting playback');
+          setCurrentMethod('openai');
+          setCurrentVoice('NOVA (OpenAI)');
+          setIsPlaying(true);
+          setIsInitializing(false);
+        };
 
-        audioElementRef.current = audio;
-        
-        // Attempt to play (requires user gesture)
-        try {
-          await audio.play();
-          return true;
-        } catch (playError) {
-          console.warn('⚠️ Audio autoplay blocked:', playError);
-          setError('Tap to enable audio playback');
-          setIsLoading(false);
-          return false;
-        }
-      }
+        audio.onended = () => {
+          console.log('✅ [OpenAI TTS] Playback completed');
+          cleanup();
+          resolve({ success: true, method: 'openai', voice: 'NOVA (OpenAI)' });
+        };
 
-      return false;
+        audio.onerror = (e) => {
+          console.error('❌ [OpenAI TTS] Audio playback error:', e);
+          cleanup();
+          resolve({ 
+            success: false, 
+            method: 'failed', 
+            error: 'Audio playback failed',
+            fallbackUsed: enableFallback
+          });
+        };
+
+        // Set audio source and play
+        audio.src = `data:audio/mp3;base64,${data.audioData}`;
+        audio.play().catch((playError) => {
+          console.error('❌ [OpenAI TTS] Play failed:', playError);
+          cleanup();
+          resolve({ 
+            success: false, 
+            method: 'failed', 
+            error: playError.message,
+            fallbackUsed: enableFallback
+          });
+        });
+      });
 
     } catch (error) {
-      console.error('❌ OpenAI TTS error:', error);
-      setError(error instanceof Error ? error.message : 'TTS failed');
-      setIsLoading(false);
+      console.error('❌ [OpenAI TTS] Error:', error);
+      return { 
+        success: false, 
+        method: 'failed', 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        fallbackUsed: enableFallback
+      };
+    }
+  }, [voice, speed, language, enableFallback, cleanup]);
 
-      // Fallback to native TTS if enabled
-      if (fallbackToNative) {
-        console.log('🔄 Falling back to native TTS...');
-        return await speakWithNativeTTS(text);
+  // Browser TTS fallback
+  const playWithBrowser = useCallback(async (text: string): Promise<TTSPlaybackResult> => {
+    try {
+      console.log('🗣️ [Browser TTS] Starting fallback playback');
+      
+      // Get the best available voice
+      if (!fallbackVoiceRef.current) {
+        fallbackVoiceRef.current = await selectBestVoice({
+          preferredLanguage: language,
+          requireSpanish: false,
+          requireFemale: false,
+          allowFallback: true
+        });
       }
 
-      return false;
-    }
-  }, [cleanup, speakWithNativeTTS]);
+      const voiceResult = fallbackVoiceRef.current;
+      
+      if (!voiceResult.voice) {
+        throw new Error('No voices available for fallback TTS');
+      }
 
-  const stop = useCallback(() => {
-    console.log('🛑 Stopping TTS playback...');
+      return new Promise((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utteranceRef.current = utterance;
+        
+        utterance.voice = voiceResult.voice;
+        utterance.rate = speed;
+        utterance.pitch = 1;
+        utterance.volume = 0.8;
+        utterance.lang = language;
+
+        utterance.onstart = () => {
+          console.log(`🎵 [Browser TTS] Started with ${voiceResult.name} (Tier ${voiceResult.tier})`);
+          setCurrentMethod('browser');
+          setCurrentVoice(voiceResult.name);
+          setIsPlaying(true);
+          setIsInitializing(false);
+        };
+
+        utterance.onend = () => {
+          console.log('✅ [Browser TTS] Playback completed');
+          cleanup();
+          resolve({ 
+            success: true, 
+            method: 'browser', 
+            voice: voiceResult.name,
+            fallbackUsed: true
+          });
+        };
+
+        utterance.onerror = (e) => {
+          console.error('❌ [Browser TTS] Error:', e.error);
+          cleanup();
+          resolve({ 
+            success: false, 
+            method: 'failed', 
+            error: `Browser TTS failed: ${e.error}`,
+            fallbackUsed: true
+          });
+        };
+
+        window.speechSynthesis.speak(utterance);
+      });
+
+    } catch (error) {
+      console.error('❌ [Browser TTS] Error:', error);
+      return { 
+        success: false, 
+        method: 'failed', 
+        error: error instanceof Error ? error.message : 'Browser TTS failed'
+      };
+    }
+  }, [language, speed, cleanup]);
+
+  // Main speak function with fallback logic
+  const speak = useCallback(async (text: string): Promise<TTSPlaybackResult> => {
+    if (!text?.trim()) {
+      return { success: false, method: 'failed', error: 'No text provided' };
+    }
+
+    // Clean up any existing playback
     cleanup();
-    setIsSpeaking(false);
-    setIsLoading(false);
+    
+    setIsInitializing(true);
+    setError(null);
+    setLastPlayedText(text);
+
+    console.log('🎯 [Universal TTS] Starting playback with OpenAI NOVA primary, browser fallback');
+
+    try {
+      // Try OpenAI TTS first
+      const openaiResult = await playWithOpenAI(text);
+      
+      if (openaiResult.success) {
+        console.log('✅ [Universal TTS] OpenAI TTS succeeded');
+        return openaiResult;
+      }
+
+      // If OpenAI failed and fallback is enabled, try browser TTS
+      if (enableFallback && openaiResult.fallbackUsed) {
+        console.log('🔄 [Universal TTS] Falling back to browser TTS');
+        const browserResult = await playWithBrowser(text);
+        
+        if (browserResult.success) {
+          console.log('✅ [Universal TTS] Browser TTS fallback succeeded');
+          return browserResult;
+        }
+        
+        // Both failed
+        const errorMessage = `Both OpenAI and browser TTS failed. OpenAI: ${openaiResult.error}, Browser: ${browserResult.error}`;
+        setError(errorMessage);
+        return { success: false, method: 'failed', error: errorMessage };
+      }
+
+      // Only OpenAI attempted, fallback disabled
+      setError(openaiResult.error || 'TTS failed');
+      return openaiResult;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown TTS error';
+      console.error('❌ [Universal TTS] Unexpected error:', error);
+      setError(errorMessage);
+      cleanup();
+      return { success: false, method: 'failed', error: errorMessage };
+    }
+  }, [playWithOpenAI, playWithBrowser, enableFallback, cleanup]);
+
+  // Stop current playback
+  const stop = useCallback(() => {
+    console.log('🛑 [Universal TTS] Stopping playback');
+    cleanup();
+  }, [cleanup]);
+
+  // Replay last message
+  const replay = useCallback(async (): Promise<TTSPlaybackResult | null> => {
+    if (!lastPlayedText) {
+      console.warn('⚠️ [Universal TTS] No text to replay');
+      return null;
+    }
+    
+    console.log('🔄 [Universal TTS] Replaying last message');
+    return await speak(lastPlayedText);
+  }, [lastPlayedText, speak]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return cleanup;
   }, [cleanup]);
 
   return {
     speak,
     stop,
-    isSpeaking,
-    isLoading,
+    replay,
+    isPlaying,
+    isInitializing,
     error,
-    lastUsedMethod,
-    audioElement: audioElementRef.current
+    currentMethod,
+    currentVoice,
+    lastPlayedText,
+    // Expose internal methods for testing
+    playWithOpenAI,
+    playWithBrowser
   };
 };
