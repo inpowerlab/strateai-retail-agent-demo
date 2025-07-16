@@ -1,5 +1,12 @@
+
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { VoiceAuditSummary, performVoiceAudit } from '@/utils/voiceAudit';
+import { 
+  selectBestVoice, 
+  testVoicePlayback, 
+  clearVoiceCache,
+  VoiceSelectionResult 
+} from '@/utils/voiceSelection';
 
 interface UseTextToSpeechOptions {
   language?: string;
@@ -20,6 +27,7 @@ interface UseTextToSpeechReturn {
   isInitializing: boolean;
   lastSpokenMessage: string | null;
   currentVoice: string | null;
+  currentVoiceInfo: VoiceSelectionResult | null;
   canAutoPlay: boolean;
   requestPlayPermission: () => Promise<boolean>;
   isMobile: boolean;
@@ -42,6 +50,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
   const [isInitializing, setIsInitializing] = useState(false);
   const [lastSpokenMessage, setLastSpokenMessage] = useState<string | null>(null);
   const [currentVoice, setCurrentVoice] = useState<string | null>(null);
+  const [currentVoiceInfo, setCurrentVoiceInfo] = useState<VoiceSelectionResult | null>(null);
   const [canAutoPlay, setCanAutoPlay] = useState(false);
   const [voiceAudit, setVoiceAudit] = useState<VoiceAuditSummary | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
@@ -55,6 +64,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
   const pendingPlaybackRef = useRef<{ text: string; messageId?: string } | null>(null);
   const userGestureActiveRef = useRef<boolean>(false);
   const gestureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fallbackAttemptRef = useRef<number>(0);
 
   // Check if Speech Synthesis is supported
   const isSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -65,51 +75,70 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     (navigator.maxTouchPoints && navigator.maxTouchPoints > 1)
   );
 
-  // Enhanced Spanish female voice selection with mobile optimization
-  const getBestSpanishVoice = useCallback(() => {
-    if (!isSupported) return null;
-    
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) return null;
+  // Universal voice selection with comprehensive fallback
+  const selectUniversalVoice = useCallback(async (): Promise<VoiceSelectionResult> => {
+    try {
+      console.log('🎯 Selecting universal voice with fallback...');
+      
+      // Select best voice with fallback enabled
+      const voiceResult = await selectBestVoice({
+        preferredLanguage: language,
+        requireSpanish: false, // Allow non-Spanish fallback
+        requireFemale: false,  // Allow male/neutral fallback
+        allowFallback: true    // Enable all fallbacks
+      });
 
-    // Mobile-optimized voice priorities
-    const voicePriorities = [
-      // iOS Spanish voices (high quality)
-      (v: SpeechSynthesisVoice) => isMobile && v.lang === 'es-ES' && v.localService && (
-        v.name.toLowerCase().includes('mónica') ||
-        v.name.toLowerCase().includes('elena') ||
-        v.name.toLowerCase().includes('paulina')
-      ),
-      // Android Spanish voices
-      (v: SpeechSynthesisVoice) => isMobile && v.lang === 'es-ES' && (
-        v.name.toLowerCase().includes('spanish') ||
-        v.name.toLowerCase().includes('español')
-      ),
-      // Desktop Spanish voices
-      (v: SpeechSynthesisVoice) => !isMobile && v.lang === 'es-ES' && (
-        v.name.toLowerCase().includes('mónica') ||
-        v.name.toLowerCase().includes('elena') ||
-        v.name.toLowerCase().includes('conchita')
-      ),
-      // Fallback to any Spanish voice
-      (v: SpeechSynthesisVoice) => v.lang.startsWith('es-ES'),
-      (v: SpeechSynthesisVoice) => v.lang.startsWith('es'),
-      (v: SpeechSynthesisVoice) => v.name.toLowerCase().includes('spanish')
-    ];
+      console.log('🔊 Voice selection result:', {
+        name: voiceResult.name,
+        tier: voiceResult.tier,
+        fallbackUsed: voiceResult.fallbackUsed,
+        quality: voiceResult.quality,
+        reasoning: voiceResult.reasoning
+      });
 
-    for (const priority of voicePriorities) {
-      const voice = voices.find(priority);
-      if (voice) {
-        console.log(`🔊 Selected ${isMobile ? 'mobile' : 'desktop'} Spanish voice:`, voice.name, voice.lang);
-        setCurrentVoice(voice.name);
-        return voice;
+      // Update current voice info
+      setCurrentVoice(voiceResult.name);
+      setCurrentVoiceInfo(voiceResult);
+
+      return voiceResult;
+    } catch (error) {
+      console.error('❌ Universal voice selection failed:', error);
+      
+      // Last resort: try to use any available voice
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const fallbackVoice = voices[0];
+        const result: VoiceSelectionResult = {
+          voice: fallbackVoice,
+          tier: 4,
+          reasoning: 'Emergency fallback - using first available voice',
+          fallbackUsed: true,
+          quality: 'fallback',
+          name: fallbackVoice.name,
+          lang: fallbackVoice.lang
+        };
+        
+        setCurrentVoice(result.name);
+        setCurrentVoiceInfo(result);
+        return result;
       }
-    }
 
-    console.log('⚠️ No Spanish voice found, using default');
-    setCurrentVoice('Default');
-    return null;
-  }, [isSupported, isMobile]);
+      // No voices available at all
+      const result: VoiceSelectionResult = {
+        voice: null,
+        tier: 4,
+        reasoning: 'No voices available on this system',
+        fallbackUsed: false,
+        quality: 'fallback',
+        name: 'None',
+        lang: 'none'
+      };
+      
+      setCurrentVoice('None');
+      setCurrentVoiceInfo(result);
+      return result;
+    }
+  }, [language]);
 
   // Mobile-optimized audio context management
   const initializeAudioContext = useCallback(async (): Promise<boolean> => {
@@ -215,39 +244,50 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
       .trim();
   }, []);
 
-  // Core TTS playback with mobile optimization
-  const performTTSPlayback = useCallback((text: string, messageId?: string) => {
+  // Core TTS playback with progressive fallback
+  const performTTSPlayback = useCallback(async (text: string, messageId?: string) => {
     try {
+      console.log('🎤 Starting TTS playback with universal fallback...');
+      
       // Stop any current speech
       if (window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
 
       const cleanText = cleanTextForSpeech(text);
-      if (!cleanText) return;
+      if (!cleanText) {
+        console.warn('⚠️ No text to speak after cleaning');
+        return;
+      }
 
       // Store for replay functionality
       lastTextRef.current = cleanText;
       setLastSpokenMessage(cleanText);
 
-      const selectedVoice = getBestSpanishVoice();
+      // Get the best available voice using universal selection
+      const voiceResult = await selectUniversalVoice();
       
+      if (!voiceResult.voice) {
+        throw new Error('No voices available for TTS playback');
+      }
+
+      // Create utterance with selected voice
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = language;
       utterance.rate = rate;
       utterance.pitch = pitch;
       utterance.volume = volume;
+      utterance.voice = voiceResult.voice;
 
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
-      }
-
+      // Set up event handlers
       utterance.onstart = () => {
-        console.log(`🗣️ TTS started for message: ${messageId} (${isMobile ? 'mobile' : 'desktop'})`);
+        console.log(`🗣️ TTS started with voice: ${voiceResult.name} (Tier ${voiceResult.tier})`);
+        console.log(`📊 Voice info: ${voiceResult.reasoning}`);
         setIsSpeaking(true);
         setError(null);
         setIsInitializing(false);
         currentMessageIdRef.current = messageId || null;
+        fallbackAttemptRef.current = 0; // Reset fallback counter
         
         // Mark message as spoken
         if (messageId) {
@@ -256,17 +296,33 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
       };
 
       utterance.onend = () => {
-        console.log(`✅ TTS ended for message: ${messageId}`);
+        console.log(`✅ TTS ended successfully for message: ${messageId}`);
         setIsSpeaking(false);
         setIsInitializing(false);
         isProcessingRef.current = false;
         currentMessageIdRef.current = null;
       };
 
-      utterance.onerror = (event) => {
-        console.error(`❌ TTS error (${isMobile ? 'mobile' : 'desktop'}):`, event.error);
-        let errorMessage = '';
+      utterance.onerror = async (event) => {
+        console.error(`❌ TTS error with voice ${voiceResult.name}:`, event.error);
         
+        // Try progressive fallback on error
+        if (fallbackAttemptRef.current < 3) { // Max 3 fallback attempts
+          fallbackAttemptRef.current++;
+          console.log(`🔄 Attempting fallback #${fallbackAttemptRef.current}...`);
+          
+          try {
+            // Clear voice cache and try again
+            clearVoiceCache();
+            setTimeout(() => performTTSPlayback(text, messageId), 500);
+            return;
+          } catch (fallbackError) {
+            console.error('❌ Fallback attempt failed:', fallbackError);
+          }
+        }
+        
+        // Handle specific errors with user-friendly messages
+        let errorMessage = '';
         switch (event.error) {
           case 'not-allowed':
             errorMessage = isMobile 
@@ -275,21 +331,22 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
             setCanAutoPlay(false);
             break;
           case 'network':
-            errorMessage = 'Error de red al reproducir voz';
+            errorMessage = 'Error de red al reproducir voz - usando voz del sistema';
             break;
           case 'synthesis-unavailable':
-            errorMessage = 'Síntesis de voz no disponible';
+            errorMessage = 'Síntesis de voz no disponible en este dispositivo';
             break;
           case 'interrupted':
             // Don't show error for intentional interruptions
             break;
           default:
-            errorMessage = `Error de síntesis: ${event.error}`;
+            errorMessage = `Error de síntesis con ${voiceResult.name} (Tier ${voiceResult.tier}) - intentando fallback`;
         }
         
         if (errorMessage) {
           setError(errorMessage);
         }
+        
         setIsSpeaking(false);
         setIsInitializing(false);
         isProcessingRef.current = false;
@@ -298,7 +355,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
 
       utteranceRef.current = utterance;
       
-      // Mobile-specific: Immediate playback during user gesture
+      // Platform-specific playback logic
       if (isMobile && userGestureActiveRef.current) {
         console.log('📱 Mobile TTS: Playing during active user gesture');
         window.speechSynthesis.speak(utterance);
@@ -314,7 +371,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         return;
       }
       
-      console.log(`🎵 TTS playback initiated (${isMobile ? 'mobile' : 'desktop'})`);
+      console.log(`🎵 TTS playback initiated with ${voiceResult.name} (${isMobile ? 'mobile' : 'desktop'})`);
       
     } catch (error) {
       console.error('❌ Failed to start TTS:', error);
@@ -323,8 +380,9 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
       isProcessingRef.current = false;
       setIsInitializing(false);
     }
-  }, [cleanTextForSpeech, getBestSpanishVoice, language, rate, pitch, volume, isMobile]);
+  }, [cleanTextForSpeech, selectUniversalVoice, language, rate, pitch, volume, isMobile]);
 
+  // Main speak function with progressive fallback
   const speak = useCallback((text: string, messageId?: string) => {
     // Early returns for unsupported or muted states
     if (!isSupported || isMuted || !text?.trim()) {
@@ -365,7 +423,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
       console.log('📱 Mobile TTS: Playing with active gesture');
       performTTSPlayback(text, messageId);
     } else {
-      // Desktop handling
+      // Desktop handling with voice loading check
       console.log(`🖥️ Desktop TTS request for: ${messageId}`);
       
       const processVoice = () => {
@@ -402,6 +460,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         currentMessageIdRef.current = null;
         pendingPlaybackRef.current = null;
         userGestureActiveRef.current = false;
+        fallbackAttemptRef.current = 0;
       } catch (error) {
         console.error('❌ Error stopping TTS:', error);
       }
@@ -428,10 +487,10 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     console.log('🔇 TTS mute toggled:', !isMuted);
   }, [isSpeaking, stop, isMuted]);
 
-  // Run voice audit on initialization
+  // Run voice audit with enhanced error handling
   const runVoiceAudit = useCallback(async (): Promise<VoiceAuditSummary> => {
     try {
-      console.log('🔍 Running voice audit from useTextToSpeech...');
+      console.log('🔍 Running enhanced voice audit...');
       setAuditError(null);
       const summary = await performVoiceAudit();
       setVoiceAudit(summary);
@@ -439,25 +498,27 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Voice audit failed';
       setAuditError(errorMessage);
-      console.error('❌ Voice audit error in useTextToSpeech:', error);
+      console.error('❌ Voice audit error:', error);
       throw error;
     }
   }, []);
 
-  // Initialize on mount with audit
+  // Initialize on mount with enhanced audit
   useEffect(() => {
     const initializeWithAudit = async () => {
       await initializeAudioContext();
       // Run voice audit on initialization
       try {
         await runVoiceAudit();
+        // Pre-select the best voice
+        await selectUniversalVoice();
       } catch (error) {
-        console.warn('⚠️ Initial voice audit failed, continuing without audit data');
+        console.warn('⚠️ Initial voice setup failed, TTS may have limited functionality');
       }
     };
     
     initializeWithAudit();
-  }, [initializeAudioContext, runVoiceAudit]);
+  }, [initializeAudioContext, runVoiceAudit, selectUniversalVoice]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -487,6 +548,7 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
     isInitializing,
     lastSpokenMessage,
     currentVoice,
+    currentVoiceInfo,
     canAutoPlay,
     requestPlayPermission,
     isMobile,

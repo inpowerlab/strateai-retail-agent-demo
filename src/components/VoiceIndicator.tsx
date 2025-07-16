@@ -2,6 +2,8 @@
 import React from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Square, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { VoiceStatusIndicator } from './VoiceStatusIndicator';
+import { VoiceSelectionResult } from '@/utils/voiceSelection';
 
 interface VoiceIndicatorProps {
   isListening: boolean;
@@ -11,6 +13,7 @@ interface VoiceIndicatorProps {
   speechSupported: boolean;
   ttsSupported: boolean;
   isMuted: boolean;
+  currentVoiceInfo?: VoiceSelectionResult | null;
   onStopSpeaking?: () => void;
   onReplay?: () => void;
   onToggleMute?: () => void;
@@ -25,13 +28,14 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
   speechSupported,
   ttsSupported,
   isMuted,
+  currentVoiceInfo,
   onStopSpeaking,
   onReplay,
   onToggleMute,
   className = ""
 }) => {
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
+    <div className={`space-y-3 ${className}`}>
       {/* Enhanced Listening Indicator for POS visibility */}
       {(isListening || speechInitializing) && (
         <div className="flex items-center gap-3 text-blue-600 bg-blue-50 px-4 py-2 rounded-full border-2 border-blue-200 shadow-lg">
@@ -71,6 +75,16 @@ export const VoiceIndicator: React.FC<VoiceIndicatorProps> = ({
               <Square className="h-5 w-5 fill-current" />
             </Button>
           )}
+        </div>
+      )}
+
+      {/* Voice Status Display - Always visible when TTS is supported */}
+      {ttsSupported && currentVoiceInfo && (
+        <div className="bg-muted/50 px-4 py-2 rounded-lg border">
+          <VoiceStatusIndicator 
+            voiceInfo={currentVoiceInfo} 
+            compact={true}
+          />
         </div>
       )}
 
