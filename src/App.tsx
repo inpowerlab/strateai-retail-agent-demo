@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import VoiceSettings from "./pages/VoiceSettings";
+import { VoiceSettings } from "./pages/VoiceSettings";
 import AuditDashboard from "./pages/AuditDashboard";
 
 function App() {
