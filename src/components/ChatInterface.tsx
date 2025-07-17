@@ -7,17 +7,17 @@ import { Separator } from '@/components/ui/separator';
 import { Send, MessageSquare, Loader2, Mic, MicOff } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { VoiceIndicator } from './VoiceIndicator';
-import { MobileAudioUnlock } from './MobileAudioUnlock';
-import { MobileTTSIndicator } from './MobileTTSIndicator';
 import { useChat } from '@/hooks/useChat';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
-import { useMobileTTS } from '@/hooks/useMobileTTS';
+import { useEnhancedGoogleTTS } from '@/hooks/useEnhancedGoogleTTS';
 import { ProductFilters } from '@/types/database';
+import { VoiceAuditDisplay } from './VoiceAuditDisplay';
 
 interface ChatInterfaceProps {
   onFiltersChange?: (filters: ProductFilters) => void;
 }
 
+// Safe fallback for findLast (es2020 compatible)
 const findLastBotMessage = (messages: any[]) => {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].sender === 'bot') {
@@ -31,7 +31,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const lastBotMessageIdRef = useRef<string | null>(null);
-  
+  const [showVoiceAudit, setShowVoiceAudit] = useState(false);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
   
   const {
@@ -49,20 +49,28 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     silenceTimeout: 3000
   });
 
-  // Use the new mobile-optimized TTS system
+  // Use the enhanced Google TTS hook with comprehensive audit capabilities
   const {
-    isAudioUnlocked,
+    speak,
+    stop: stopSpeaking,
+    replay: replayLastMessage,
     isPlaying: isSpeaking,
     isInitializing: ttsInitializing,
     error: ttsError,
-    requiresUserGesture,
-    isMobile,
     currentMethod,
     currentVoice,
-    playTTS,
-    stopTTS,
-    handleUserGesture
-  } = useMobileTTS();
+    lastPlayedText,
+    auditReports,
+    getLatestAuditReport
+  } = useEnhancedGoogleTTS({
+    voice: 'es-US-Journey-F',
+    speed: 1.0,
+    enableFallback: true,
+    auditMode: true // Enable comprehensive auditing
+  });
+
+  const isSupported = speechSupported;
+  const ttsSupported = true;
 
   useEffect(() => {
     startChat();
@@ -78,7 +86,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   }, [messages]);
 
-  // Handle voice transcript
+  // Enhanced voice transcript handling
   useEffect(() => {
     if (transcript && transcript.length > 3) {
       console.log('🗣️ Processing transcript:', transcript);
@@ -95,7 +103,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
     }
   }, [transcript, resetTranscript, sendMessage]);
 
-  // MOBILE-OPTIMIZED AUTO-PLAY TTS
+  // ENHANCED AUTO-PLAY TTS: Immediate voice response with comprehensive audit logging
   useEffect(() => {
     if (messages.length === 0 || isSending) return;
 
@@ -106,13 +114,36 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         lastMessage.id !== lastBotMessageIdRef.current &&
         lastMessage.content.length > 0) {
       
-      console.log(`🤖 Auto-playing TTS for new bot message: ${lastMessage.id}`);
+      console.log(`🤖 Auto-playing Google Cloud TTS for new bot message: ${lastMessage.id}`);
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Use mobile-optimized TTS
-      playTTS(lastMessage.content);
+      // Auto-play TTS with comprehensive audit logging
+      speak(lastMessage.content).then(result => {
+        const auditReport = getLatestAuditReport();
+        
+        if (result.success) {
+          console.log(`✅ TTS Success with ${result.method}: ${result.voice}`);
+          if (auditReport) {
+            console.log(`📊 Audit Report:`, {
+              latency: auditReport.metrics.totalLatency,
+              method: auditReport.metrics.method,
+              voice: auditReport.voiceSelection.actualVoice,
+              recommendations: auditReport.recommendations
+            });
+          }
+        } else {
+          console.error(`❌ TTS Failed: ${result.error}`);
+          if (auditReport) {
+            console.error(`📊 Failure Audit:`, {
+              errors: auditReport.metrics.errors,
+              fallbackReason: auditReport.metrics.fallbackReason,
+              recommendations: auditReport.recommendations
+            });
+          }
+        }
+      });
     }
-  }, [messages, playTTS, isSending]);
+  }, [messages, speak, isSending, getLatestAuditReport]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,11 +160,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   };
 
   const handleVoiceToggle = async () => {
-    // Handle user gesture for audio unlock
-    if (!isAudioUnlocked && isMobile) {
-      await handleUserGesture();
-    }
-    
     if (isListening || speechInitializing) {
       console.log('🛑 Stopping voice input');
       stopListening();
@@ -142,7 +168,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
       
       // Stop TTS when starting to listen
       if (isSpeaking) {
-        stopTTS();
+        stopSpeaking();
       }
       
       await startListening();
@@ -150,38 +176,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
   };
 
   const handleStartConversation = async () => {
-    // Handle user gesture
-    if (!isAudioUnlocked && isMobile) {
-      await handleUserGesture();
-    }
-    
-    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI con voz premium de Google Cloud optimizada para móviles. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
+    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI con voz premium de Google Cloud. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
 
-  // Handle any button click for gesture unlock
-  const handleAnyButtonClick = async (originalHandler?: () => void) => {
-    if (!isAudioUnlocked && isMobile) {
-      await handleUserGesture();
+  // Display current TTS method and voice info with audit details
+  const getTTSStatusText = () => {
+    const latestAudit = getLatestAuditReport();
+    
+    if (currentMethod === 'google') {
+      const latency = latestAudit?.metrics.totalLatency;
+      return `🌩️ Google Cloud Premium • ${latency ? `${latency}ms` : 'Active'}`;
+    } else if (currentMethod === 'browser') {
+      const reason = latestAudit?.metrics.fallbackReason;
+      return `🗣️ ${currentVoice} • Fallback${reason ? ` (${reason})` : ''}`;
+    } else if (lastPlayedText) {
+      return `🔊 TTS Disponible • Última: ${currentMethod || 'Google Cloud'}`;
     }
-    if (originalHandler) {
-      originalHandler();
-    }
+    return `🎵 Google Cloud Premium + Fallback • Sistema Auditado`;
   };
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Mobile Audio Unlock Component */}
-      {requiresUserGesture && (
-        <MobileAudioUnlock
-          onUnlock={handleUserGesture}
-          isMobile={isMobile}
-          requiresGesture={requiresUserGesture}
-          error={ttsError}
-        />
-      )}
-
-      {/* Enhanced Chat Header with Mobile TTS Status */}
+      {/* Enhanced Chat Header with Google Cloud TTS Status */}
       <div className="p-6 border-b bg-gradient-to-r from-primary/5 to-primary/10 backdrop-blur-sm">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg">
@@ -191,25 +208,63 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             <h2 className="text-xl font-bold">Asistente StrateAI</h2>
             <p className="text-sm text-muted-foreground font-medium">
               {messages.length === 0 
-                ? `Listo para ayudarte • Google Cloud Premium Voice${isMobile ? ' • Móvil' : ''}` 
-                : `${currentVoice || 'Google Cloud Premium'}${isMobile ? ' • Móvil' : ''}`}
+                ? 'Listo para ayudarte con tus compras • Google Cloud Premium Voice' 
+                : getTTSStatusText()}
             </p>
           </div>
+          <Button
+            variant="ghost"
+            size="lg"
+            onClick={() => setShowVoiceAudit(!showVoiceAudit)}
+            className="text-sm font-medium"
+          >
+            🔍 Auditoría de Voz
+          </Button>
         </div>
         
-        {/* Mobile TTS Status Indicator */}
+        {/* Voice Audit Display */}
+        {showVoiceAudit && (
+          <div className="mt-4 border rounded-lg p-3 bg-muted/50">
+            <VoiceAuditDisplay onAuditComplete={(summary) => console.log('Audit updated:', summary)} />
+          </div>
+        )}
+        
+        {/* Enhanced Voice Indicator with Google Cloud Status */}
         <div className="mt-4">
-          <MobileTTSIndicator
-            isPlaying={isSpeaking}
-            isInitializing={ttsInitializing}
-            isMobile={isMobile}
-            isAudioUnlocked={isAudioUnlocked}
-            currentMethod={currentMethod}
-            currentVoice={currentVoice}
-            error={ttsError}
-            onStop={stopTTS}
-            onUnlock={handleUserGesture}
+          <VoiceIndicator
+            isListening={isListening}
+            isSpeaking={isSpeaking}
+            speechInitializing={speechInitializing}
+            ttsInitializing={ttsInitializing}
+            speechSupported={speechSupported}
+            ttsSupported={ttsSupported}
+            isMuted={false}
+            onStopSpeaking={stopSpeaking}
+            onReplay={replayLastMessage}
+            onToggleMute={() => {}}
+            className="justify-start"
           />
+          
+          {/* Enhanced TTS Status Display with Audit Info */}
+          {(currentMethod || ttsError) && (
+            <div className="mt-2 p-2 rounded-lg bg-muted/30 text-sm">
+              {ttsError ? (
+                <div className="text-destructive">
+                  ❌ TTS Error: {ttsError}
+                </div>
+              ) : (
+                <div className="text-muted-foreground">
+                  🎵 TTS Active: {currentMethod === 'google' ? 'Google Cloud Premium (Chirp3-HD)' : `Browser ${currentVoice}`}
+                  {currentMethod === 'browser' && (
+                    <span className="ml-2 text-amber-600">• Fallback Mode (Audit Available)</span>
+                  )}
+                  {auditReports.length > 0 && (
+                    <span className="ml-2 text-blue-600">• {auditReports.length} Audit Reports</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -226,23 +281,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
               {speechSupported && ' También puedes usar tu voz para hablar conmigo.'}
             </p>
             <div className="mb-4 p-3 bg-primary/10 rounded-lg border border-primary/20">
-              <div className="text-sm font-medium text-primary mb-1">
-                🌩️ Voz Premium {isMobile ? 'Móvil ' : ''}Activada
-              </div>
+              <div className="text-sm font-medium text-primary mb-1">🌩️ Voz Premium Activada</div>
               <div className="text-xs text-muted-foreground">
-                Google Cloud Text-to-Speech + Fallback automático + Optimizado para móviles
+                Google Cloud Text-to-Speech (Chirp3-HD) + Fallback automático + Sistema de auditoría
               </div>
-              {isMobile && (
-                <div className="text-xs text-orange-600 mt-1">
-                  📱 Toca cualquier botón para habilitar el audio en móvil
-                </div>
-              )}
             </div>
-            <Button 
-              onClick={() => handleAnyButtonClick(handleStartConversation)} 
-              size="lg" 
-              className="h-12 px-8 text-lg font-semibold shadow-lg"
-            >
+            <Button onClick={handleStartConversation} size="lg" className="h-12 px-8 text-lg font-semibold shadow-lg">
               Iniciar conversación
             </Button>
           </div>
@@ -276,8 +320,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         )}
       </ScrollArea>
 
-      {/* Voice/TTS Error Messages */}
-      {(speechError || (ttsError && !requiresUserGesture)) && (
+      {/* Voice/TTS Status and Error Messages */}
+      {(speechError || ttsError) && (
         <div className="px-6 py-3 bg-destructive/10 border-t border-destructive/20">
           <p className="text-sm text-destructive font-medium">
             ❌ {speechError || ttsError}
@@ -285,7 +329,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
         </div>
       )}
 
-      {/* MOBILE-OPTIMIZED INPUT AREA */}
+      {/* ENHANCED POS INPUT AREA */}
       <div className="p-6 border-t bg-gradient-to-r from-primary/10 to-primary/5 backdrop-blur-sm">
         <form onSubmit={handleSendMessage} className="flex gap-4">
           <Input
@@ -297,7 +341,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             maxLength={500}
           />
           
-          {/* MOBILE-OPTIMIZED MICROPHONE BUTTON */}
+          {/* ENHANCED MICROPHONE BUTTON with Google Cloud integration note */}
           {speechSupported && (
             <Button
               type="button"
@@ -313,8 +357,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
                 isListening || speechInitializing 
                   ? 'Toca para parar grabación' 
                   : micPermission 
-                    ? `Toca para hablar${!isAudioUnlocked && isMobile ? ' (también activa audio)' : ''}`
+                    ? 'Toca para hablar (Whisper STT)'
                     : 'Permitir micrófono para usar voz'
+              }
+              aria-label={
+                isListening || speechInitializing 
+                  ? 'Parar grabación de voz' 
+                  : 'Iniciar grabación de voz con Whisper'
               }
             >
               {(isListening || speechInitializing) ? (
@@ -325,13 +374,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
             </Button>
           )}
           
-          {/* MOBILE-OPTIMIZED SEND BUTTON */}
+          {/* ENHANCED SEND BUTTON */}
           <Button 
             type="submit" 
             disabled={!inputValue.trim() || isSending || isListening || speechInitializing}
             size="lg"
             className="h-14 w-14 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg border-2 border-green-300 hover:scale-105 transition-all duration-200"
-            onClick={() => handleAnyButtonClick()}
+            aria-label="Enviar mensaje"
+            title="Toca para enviar mensaje"
           >
             {isSending ? (
               <Loader2 className="h-7 w-7 animate-spin" />
@@ -341,25 +391,30 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
           </Button>
         </form>
         
-        {/* Enhanced Mobile Status */}
+        {/* Enhanced Status Text with Google Cloud info */}
         <div className="mt-3 text-center">
           <p className="text-sm text-muted-foreground font-medium">
             <span className="inline-flex items-center gap-1">
-              🌩️ Google Cloud Premium TTS{isMobile ? ' • Móvil Optimizado' : ''}
+              🌩️ Google Cloud Premium TTS + Browser Fallback
             </span>
             {speechSupported && (
               <>
                 <span className="mx-2">•</span>
                 <span className="inline-flex items-center gap-1">
                   <Mic className="h-4 w-4" />
-                  {micPermission ? 'Toca micrófono azul para hablar' : 'Permitir micrófono para STT'}
+                  {micPermission ? 'Toca el micrófono azul para hablar (Whisper)' : 'Permitir micrófono para STT'}
                 </span>
               </>
             )}
-            {isMobile && !isAudioUnlocked && (
+            <span className="mx-2">•</span>
+            <span className="inline-flex items-center gap-1">
+              <Send className="h-4 w-4" />
+              Toca el botón verde para enviar
+            </span>
+            {auditReports.length > 0 && (
               <>
                 <span className="mx-2">•</span>
-                <span className="text-orange-600">📱 Toca cualquier botón para audio</span>
+                <span>{auditReports.length} reportes de auditoría disponibles</span>
               </>
             )}
           </p>
