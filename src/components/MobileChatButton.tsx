@@ -1,22 +1,32 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { MessageSquare, Send, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Mic, MicOff } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
-import { MobileAudioUnlock } from './MobileAudioUnlock';
-import { MobileTTSIndicator } from './MobileTTSIndicator';
+import { VoiceIndicator } from './VoiceIndicator';
 import { useChat } from '@/hooks/useChat';
-import { useMobileVoiceManager } from '@/hooks/useMobileVoiceManager';
+import { useSpeechToText } from '@/hooks/useSpeechToText';
+import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { ProductFilters } from '@/types/database';
+import { VoiceAuditDisplay } from './VoiceAuditDisplay';
 
 interface MobileChatButtonProps {
   onFiltersChange?: (filters: ProductFilters) => void;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Safe fallback for findLast (es2020 compatible)
+const findLastBotMessage = (messages: any[]) => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].sender === 'bot') {
+      return messages[i];
+    }
+  }
+  return undefined;
+};
 
 export const MobileChatButton: React.FC<MobileChatButtonProps> = ({ 
   onFiltersChange, 
@@ -26,29 +36,43 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   const [inputValue, setInputValue] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const lastBotMessageIdRef = useRef<string | null>(null);
-  const [showDebugLogs, setShowDebugLogs] = useState(false);
-  
+  const [showVoiceAudit, setShowVoiceAudit] = useState(false);
   const { messages, sendMessage, isSending, startChat } = useChat(onFiltersChange);
 
-  // Initialize mobile voice manager
-  const voiceManager = useMobileVoiceManager({
-    onTranscript: (transcript) => {
-      console.log('📱 Mobile transcript received:', transcript);
-      setInputValue(transcript);
-      
-      // Auto-send after a short delay
-      setTimeout(() => {
-        if (transcript.trim() && !isSending) {
-          sendMessage({ content: transcript.trim(), sender: 'user' });
-          setInputValue('');
-        }
-      }, 700);
-    },
-    onError: (error) => {
-      console.error('📱 Mobile voice error:', error);
-    },
-    autoStopOnSpeech: true
+  const {
+    isListening,
+    transcript,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscript,
+    isSupported: speechSupported,
+    isInitializing: speechInitializing,
+    hasPermission: micPermission
+  } = useSpeechToText({
+    maxRecordingTime: 30000,
+    silenceTimeout: 4000
   });
+
+  const {
+    isSpeaking,
+    error: ttsError,
+    speak,
+    stop: stopSpeaking,
+    replay: replayLastMessage,
+    isSupported: ttsSupported,
+    isMuted,
+    toggleMute,
+    isInitializing: ttsInitializing,
+    lastSpokenMessage,
+    currentVoice,
+    canAutoPlay,
+    requestPlayPermission,
+    isMobile,
+    voiceAudit,
+    runVoiceAudit,
+    auditError
+  } = useTextToSpeech();
 
   useEffect(() => {
     startChat();
@@ -64,7 +88,24 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     }
   }, [messages, isOpen]);
 
-  // Auto-play TTS for new bot messages
+  // Enhanced mobile transcript handling
+  useEffect(() => {
+    if (transcript && transcript.length > 3 && isOpen) {
+      console.log('📱 Processing mobile transcript:', transcript);
+      setInputValue(transcript);
+      resetTranscript();
+      
+      // Auto-send with mobile-optimized delay
+      setTimeout(() => {
+        if (transcript.trim()) {
+          sendMessage({ content: transcript.trim(), sender: 'user' });
+          setInputValue('');
+        }
+      }, 700);
+    }
+  }, [transcript, resetTranscript, sendMessage, isOpen]);
+
+  // AUTO-PLAY TTS: Immediate voice response after bot reply (mobile optimized)
   useEffect(() => {
     if (messages.length === 0 || isSending || !isOpen) return;
 
@@ -73,15 +114,22 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
     if (lastMessage && 
         lastMessage.sender === 'bot' && 
         lastMessage.id !== lastBotMessageIdRef.current &&
+        ttsSupported && 
+        !isMuted && 
         lastMessage.content.length > 0) {
       
-      console.log('📱 Auto-playing TTS for new bot message:', lastMessage.id);
+      console.log('📱 Auto-playing mobile TTS for new bot message:', lastMessage.id);
       lastBotMessageIdRef.current = lastMessage.id;
       
-      // Use voice manager for coordinated TTS playback
-      voiceManager.playVoiceOutput(lastMessage.content, lastMessage.id);
+      // Mobile TTS auto-play - immediate if we have permission
+      if (canAutoPlay) {
+        console.log('📱 Mobile auto-playing TTS response immediately');
+        speak(lastMessage.content, lastMessage.id);
+      } else {
+        console.log('📱 Mobile TTS auto-play requires user gesture - will play on next interaction');
+      }
     }
-  }, [messages, isSending, isOpen, voiceManager]);
+  }, [messages, speak, ttsSupported, isMuted, isOpen, isSending, canAutoPlay]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,11 +137,6 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
 
     const userMessage = inputValue.trim();
     setInputValue('');
-
-    // Handle gesture if needed
-    if (!voiceManager.isAudioUnlocked) {
-      await voiceManager.handleUniversalGesture();
-    }
 
     try {
       sendMessage({ content: userMessage, sender: 'user' });
@@ -103,37 +146,39 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
   };
 
   const handleVoiceToggle = async () => {
-    console.log('📱 Voice toggle clicked');
-    await voiceManager.toggleVoiceInput();
+    if (isListening || speechInitializing) {
+      console.log('📱 Stopping mobile voice input');
+      stopListening();
+    } else {
+      console.log('📱 Starting mobile voice input');
+      
+      // Stop TTS when starting to listen
+      if (isSpeaking) {
+        stopSpeaking();
+      }
+      
+      // Request TTS permission when user taps mic (critical for mobile auto-play)
+      if (!canAutoPlay) {
+        await requestPlayPermission();
+      }
+      
+      await startListening();
+    }
   };
 
   const handleStartConversation = async () => {
-    // Ensure audio is unlocked when starting conversation
-    await voiceManager.handleUniversalGesture();
+    // Request permission when starting conversation on mobile for seamless auto-play
+    if (!canAutoPlay) {
+      await requestPlayPermission();
+    }
     
-    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI optimizado para móviles. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Puedes escribir o usar tu voz para preguntarme sobre productos. ¿En qué puedo ayudarte hoy?";
+    const welcomeMessage = "¡Hola! Soy tu asistente de compras de StrateAI. Puedo ayudarte a encontrar productos específicos basándome en nuestro inventario real. Por ejemplo, puedes preguntarme: Muéstrame televisores de 55 pulgadas bajo 800 dólares o Busco audífonos inalámbricos. ¿En qué puedo ayudarte hoy?";
     sendMessage({ content: welcomeMessage, sender: 'bot' });
   };
 
-  const getMicButtonState = () => {
-    if (voiceManager.isListening) {
-      return {
-        variant: "destructive" as const,
-        className: "bg-red-500 hover:bg-red-600 text-white animate-pulse",
-        icon: MicOff,
-        title: "Parar grabación"
-      };
-    }
-    
-    return {
-      variant: "outline" as const,
-      className: voiceManager.isAudioUnlocked ? "bg-blue-500 text-white" : "",
-      icon: Mic,
-      title: voiceManager.isAudioUnlocked ? "Iniciar grabación de voz" : "Toca para activar audio y voz"
-    };
-  };
-
-  const micButtonState = getMicButtonState();
+  const voiceButtonVariant = (isListening || speechInitializing) ? "destructive" : "outline";
+  const voiceButtonClass = (isListening || speechInitializing) ? 
+    "bg-red-100 text-red-600 border-red-300 animate-pulse" : "";
 
   return (
     <>
@@ -144,7 +189,6 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
             size="lg"
             className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg lg:hidden"
             aria-label="Abrir chat"
-            onClick={voiceManager.handleUniversalGesture}
           >
             <MessageSquare className="h-6 w-6" />
           </Button>
@@ -160,81 +204,49 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 <div>
                   <SheetTitle className="text-left">Asistente StrateAI</SheetTitle>
                   <SheetDescription className="text-left">
-                    {voiceManager.voiceStatus} • {voiceManager.isMobile ? 'Móvil' : 'Desktop'}
+                    {messages.length === 0 
+                      ? 'Listo para ayudarte' 
+                      : `En línea • ${speechSupported ? 'Voz disponible' : 'Solo texto'} • ${currentVoice || 'Voz predeterminada'} • Móvil`}
                   </SheetDescription>
                 </div>
               </div>
-              
-              <div className="flex items-center gap-2">
-                {/* Debug toggle */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowDebugLogs(!showDebugLogs)}
-                  className="text-xs"
-                >
-                  🔍
-                </Button>
-                
-                {/* Audio status */}
-                {voiceManager.isSpeaking && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={voiceManager.stopVoiceOutput}
-                    className="text-red-600"
-                  >
-                    <VolumeX className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowVoiceAudit(!showVoiceAudit)}
+                className="text-xs shrink-0"
+              >
+                {voiceAudit?.femaleSpanishVoices ? 
+                  `✅ ${voiceAudit.femaleSpanishVoices}` : 
+                  '🔍'
+                }
+              </Button>
             </div>
             
-            {/* Mobile TTS Status Indicator */}
-            <div className="mt-3">
-              <MobileTTSIndicator
-                isPlaying={voiceManager.isSpeaking}
-                isInitializing={voiceManager.isListening}
-                isMobile={voiceManager.isMobile}
-                isAudioUnlocked={voiceManager.isAudioUnlocked}
-                currentMethod={voiceManager.currentMethod}
-                currentVoice={voiceManager.currentVoice}
-                error={voiceManager.error}
-                onStop={voiceManager.stopVoiceOutput}
-                onUnlock={voiceManager.handleUniversalGesture}
-              />
-            </div>
-
-            {/* Debug logs */}
-            {showDebugLogs && (
-              <div className="mt-2 p-2 bg-muted rounded text-xs max-h-32 overflow-y-auto">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-medium">Debug Logs:</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={voiceManager.clearDebugLogs}
-                    className="h-4 text-xs"
-                  >
-                    Clear
-                  </Button>
-                </div>
-                {voiceManager.debugLogs.map((log, index) => (
-                  <div key={index} className="font-mono text-xs">{log}</div>
-                ))}
+            {/* Voice Audit Display for Mobile */}
+            {showVoiceAudit && (
+              <div className="mt-4 border rounded-lg p-3 bg-muted/50 max-h-60 overflow-y-auto">
+                <VoiceAuditDisplay onAuditComplete={(summary) => console.log('Mobile audit updated:', summary)} />
               </div>
             )}
+            
+            {/* Voice Indicator for Mobile */}
+            <div className="mt-2">
+              <VoiceIndicator
+                isListening={isListening}
+                isSpeaking={isSpeaking}
+                speechInitializing={speechInitializing}
+                ttsInitializing={ttsInitializing}
+                speechSupported={speechSupported}
+                ttsSupported={ttsSupported}
+                isMuted={isMuted}
+                onStopSpeaking={stopSpeaking}
+                onReplay={replayLastMessage}
+                onToggleMute={toggleMute}
+                className="justify-start"
+              />
+            </div>
           </SheetHeader>
-
-          {/* Audio unlock prompt */}
-          {voiceManager.requiresUserGesture && (
-            <MobileAudioUnlock
-              onUnlock={voiceManager.handleUniversalGesture}
-              isMobile={voiceManager.isMobile}
-              requiresGesture={voiceManager.requiresUserGesture}
-              error={voiceManager.error}
-            />
-          )}
 
           {/* Messages Area */}
           <ScrollArea ref={scrollAreaRef} className="flex-1">
@@ -244,7 +256,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 <h3 className="text-lg font-semibold mb-2">¡Comencemos a chatear!</h3>
                 <p className="text-muted-foreground mb-4 max-w-sm">
                   Pregúntame sobre cualquier producto. Tengo acceso a todo nuestro inventario real.
-                  {voiceManager.isSupported && ' También puedes usar tu voz.'}
+                  {speechSupported && ' También puedes usar tu voz.'}
                 </p>
                 <Button onClick={handleStartConversation} variant="outline">
                   Iniciar conversación
@@ -280,11 +292,11 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
             )}
           </ScrollArea>
 
-          {/* Error Display */}
-          {voiceManager.error && (
+          {/* Voice/TTS Status and Error Messages */}
+          {(speechError || ttsError || auditError) && (
             <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
               <p className="text-xs text-destructive">
-                ❌ {voiceManager.error}
+                ❌ {speechError || ttsError || auditError}
               </p>
             </div>
           )}
@@ -295,32 +307,44 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder={voiceManager.isSupported ? "Escribe o usa el micrófono..." : "Pregúntame sobre productos disponibles..."}
-                disabled={isSending || voiceManager.isListening}
+                placeholder={speechSupported ? "Escribe o usa el micrófono..." : "Pregúntame sobre productos disponibles..."}
+                disabled={isSending || isListening || speechInitializing}
                 className="flex-1"
                 maxLength={500}
               />
-              
-              {voiceManager.isSupported && (
+              {speechSupported && (
                 <Button
                   type="button"
                   onClick={handleVoiceToggle}
                   disabled={isSending}
                   size="icon"
-                  variant={micButtonState.variant}
-                  className={`transition-colors ${micButtonState.className}`}
-                  title={micButtonState.title}
+                  variant={voiceButtonVariant}
+                  className={`transition-colors ${voiceButtonClass}`}
+                  title={
+                    isListening || speechInitializing 
+                      ? 'Parar grabación' 
+                      : micPermission 
+                        ? 'Iniciar grabación de voz'
+                        : 'Permitir micrófono para usar voz'
+                  }
+                  aria-label={
+                    isListening || speechInitializing 
+                      ? 'Parar grabación de voz' 
+                      : 'Iniciar grabación de voz'
+                  }
                 >
-                  <micButtonState.icon className="h-4 w-4" />
+                  {(isListening || speechInitializing) ? (
+                    <MicOff className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
                 </Button>
               )}
-              
               <Button 
                 type="submit" 
-                disabled={!inputValue.trim() || isSending || voiceManager.isListening}
+                disabled={!inputValue.trim() || isSending || isListening || speechInitializing}
                 size="icon"
                 aria-label="Enviar mensaje"
-                onClick={voiceManager.handleUniversalGesture}
               >
                 {isSending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -329,13 +353,10 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
                 )}
               </Button>
             </form>
-            
             <p className="text-xs text-muted-foreground mt-2">
-              {voiceManager.isSupported ? 
-                `Voz: ${voiceManager.isAudioUnlocked ? 'Activa' : 'Toca para activar'}` : 
-                'Solo texto'
-              } • 
-              {voiceManager.currentVoice && `${voiceManager.currentVoice} • `}
+              {speechSupported ? (micPermission ? 'Voz activa' : 'Voz requiere permisos') : 'Solo texto'} • 
+              {ttsSupported && lastSpokenMessage && 'Última respuesta disponible para repetir • '}
+              {canAutoPlay ? 'Audio móvil automático' : 'Audio móvil manual'} • 
               Integrado con OpenAI
             </p>
           </div>
