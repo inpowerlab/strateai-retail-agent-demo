@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_audit_logs: {
+        Row: {
+          action: string
+          created_at: string
+          details: Json | null
+          error_message: string | null
+          id: string
+          ip_address: unknown | null
+          resource_id: string | null
+          resource_type: string
+          success: boolean
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: Json | null
+          error_message?: string | null
+          id?: string
+          ip_address?: unknown | null
+          resource_id?: string | null
+          resource_type: string
+          success?: boolean
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: Json | null
+          error_message?: string | null
+          id?: string
+          ip_address?: unknown | null
+          resource_id?: string | null
+          resource_type?: string
+          success?: boolean
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       code_generation_logs: {
         Row: {
           code_hash: string | null
@@ -137,6 +179,48 @@ export type Database = {
         }
         Relationships: []
       }
+      file_uploads: {
+        Row: {
+          batch_id: string
+          error_message: string | null
+          file_name: string
+          file_size: number | null
+          file_type: string | null
+          id: string
+          processed_at: string | null
+          storage_path: string | null
+          upload_status: string | null
+          uploaded_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          batch_id: string
+          error_message?: string | null
+          file_name: string
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          processed_at?: string | null
+          storage_path?: string | null
+          upload_status?: string | null
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          batch_id?: string
+          error_message?: string | null
+          file_name?: string
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          processed_at?: string | null
+          storage_path?: string | null
+          upload_status?: string | null
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       mensajes: {
         Row: {
           content: string
@@ -177,8 +261,10 @@ export type Database = {
           descripcion: string
           id: string
           imagen_url: string
+          imagenes_urls: string[] | null
           nombre: string
           precio: number
+          video_url: string | null
         }
         Insert: {
           cantidad_disponible?: number
@@ -187,8 +273,10 @@ export type Database = {
           descripcion: string
           id?: string
           imagen_url: string
+          imagenes_urls?: string[] | null
           nombre: string
           precio: number
+          video_url?: string | null
         }
         Update: {
           cantidad_disponible?: number
@@ -197,8 +285,109 @@ export type Database = {
           descripcion?: string
           id?: string
           imagen_url?: string
+          imagenes_urls?: string[] | null
           nombre?: string
           precio?: number
+          video_url?: string | null
+        }
+        Relationships: []
+      }
+      staging_products: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          batch_id: string
+          cantidad_disponible: number | null
+          categoria: string | null
+          descripcion: string | null
+          id: string
+          imagen_url: string | null
+          imagenes_urls: string[] | null
+          imported_at: string
+          imported_by: string | null
+          nombre: string | null
+          original_data: Json | null
+          precio: number | null
+          published_at: string | null
+          sku: string | null
+          source_file_name: string | null
+          source_row_number: number | null
+          validated_at: string | null
+          validated_by: string | null
+          validation_errors: Json | null
+          validation_status: string | null
+          video_url: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          batch_id: string
+          cantidad_disponible?: number | null
+          categoria?: string | null
+          descripcion?: string | null
+          id?: string
+          imagen_url?: string | null
+          imagenes_urls?: string[] | null
+          imported_at?: string
+          imported_by?: string | null
+          nombre?: string | null
+          original_data?: Json | null
+          precio?: number | null
+          published_at?: string | null
+          sku?: string | null
+          source_file_name?: string | null
+          source_row_number?: number | null
+          validated_at?: string | null
+          validated_by?: string | null
+          validation_errors?: Json | null
+          validation_status?: string | null
+          video_url?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          batch_id?: string
+          cantidad_disponible?: number | null
+          categoria?: string | null
+          descripcion?: string | null
+          id?: string
+          imagen_url?: string | null
+          imagenes_urls?: string[] | null
+          imported_at?: string
+          imported_by?: string | null
+          nombre?: string | null
+          original_data?: Json | null
+          precio?: number | null
+          published_at?: string | null
+          sku?: string | null
+          source_file_name?: string | null
+          source_row_number?: number | null
+          validated_at?: string | null
+          validated_by?: string | null
+          validation_errors?: Json | null
+          validation_status?: string | null
+          video_url?: string | null
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
         }
         Relationships: []
       }
@@ -207,10 +396,28 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _user_id: string
+          _role: Database["public"]["Enums"]["app_role"]
+        }
+        Returns: boolean
+      }
+      is_admin: {
+        Args: { _user_id: string }
+        Returns: boolean
+      }
+      publish_staging_products: {
+        Args: { staging_ids: string[]; admin_user_id: string }
+        Returns: {
+          success: boolean
+          published_count: number
+          error_message: string
+        }[]
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -337,6 +544,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+    },
   },
 } as const
