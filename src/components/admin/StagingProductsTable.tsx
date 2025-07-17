@@ -186,7 +186,6 @@ export const StagingProductsTable: React.FC<StagingProductsTableProps> = ({
                       <Checkbox
                         checked={isAllSelected}
                         onCheckedChange={handleSelectAll}
-                        indeterminate={isSomeSelected && !isAllSelected}
                       />
                     </TableHead>
                     <TableHead className="w-16">Image</TableHead>

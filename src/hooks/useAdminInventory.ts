@@ -73,7 +73,10 @@ export const useAdminInventory = () => {
         .order('imported_at', { ascending: false });
 
       if (error) throw error;
-      setStagingProducts(data || []);
+      setStagingProducts((data || []).map(item => ({
+        ...item,
+        validation_status: item.validation_status as StagingProduct['validation_status'],
+      })));
     } catch (error) {
       console.error('Error fetching staging products:', error);
       toast({
@@ -94,7 +97,10 @@ export const useAdminInventory = () => {
         .order('uploaded_at', { ascending: false });
 
       if (error) throw error;
-      setFileUploads(data || []);
+      setFileUploads((data || []).map(item => ({
+        ...item,
+        upload_status: item.upload_status as FileUpload['upload_status'],
+      })));
     } catch (error) {
       console.error('Error fetching file uploads:', error);
     }
@@ -109,7 +115,10 @@ export const useAdminInventory = () => {
         .limit(100);
 
       if (error) throw error;
-      setAuditLogs(data || []);
+      setAuditLogs((data || []).map(item => ({
+        ...item,
+        ip_address: item.ip_address?.toString() || undefined,
+      })));
     } catch (error) {
       console.error('Error fetching audit logs:', error);
     }

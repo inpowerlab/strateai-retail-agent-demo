@@ -35,7 +35,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [editedProduct, setEditedProduct] = useState<StagingProduct>(product);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const handleFieldChange = (field: keyof StagingProduct, value: any) => {
+  const handleFieldChange = (field: keyof StagingProduct, value: string | number | string[] | null) => {
     setEditedProduct(prev => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
@@ -44,10 +44,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     const updates: Partial<StagingProduct> = {};
     
     // Only include changed fields
-    Object.keys(editedProduct).forEach(key => {
-      const field = key as keyof StagingProduct;
-      if (editedProduct[field] !== product[field]) {
-        updates[field] = editedProduct[field] as any;
+    (Object.keys(editedProduct) as Array<keyof StagingProduct>).forEach(key => {
+      if (editedProduct[key] !== product[key]) {
+        (updates as any)[key] = editedProduct[key];
       }
     });
 
