@@ -193,7 +193,7 @@ export const useMobileVoiceManager = (options: MobileVoiceManagerOptions = {}) =
   }, [stopListening, addDebugLog]);
 
   // Play TTS with coordination
-  const playVoiceOutput = useCallback(async (text: string) => {
+  const playVoiceOutput = useCallback(async (text: string, messageId?: string) => {
     if (!text?.trim()) return false;
     
     addDebugLog(`Playing TTS: "${text.substring(0, 50)}..."`);
@@ -215,7 +215,7 @@ export const useMobileVoiceManager = (options: MobileVoiceManagerOptions = {}) =
     setState(prev => ({ ...prev, lastAction: 'speaking' }));
     
     try {
-      playTTS(text);
+      playTTS(text, messageId);
       addDebugLog('TTS playback initiated');
       return true;
     } catch (error) {
@@ -272,7 +272,6 @@ export const useMobileVoiceManager = (options: MobileVoiceManagerOptions = {}) =
     currentVoice,
     currentMethod,
     voiceStatus: getVoiceStatus(),
-    requiresUserGesture,
     
     // Actions
     handleUniversalGesture,
@@ -283,7 +282,6 @@ export const useMobileVoiceManager = (options: MobileVoiceManagerOptions = {}) =
     stopVoiceOutput,
     
     // Debug
-    clearDebugLogs: () => setState(prev => ({ ...prev, debugLogs: [] })),
-    debugLogs: state.debugLogs
+    clearDebugLogs: () => setState(prev => ({ ...prev, debugLogs: [] }))
   };
 };

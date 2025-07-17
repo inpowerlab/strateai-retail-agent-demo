@@ -72,7 +72,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onFiltersChange })
       lastBotMessageIdRef.current = lastMessage.id;
       
       // Use voice manager for coordinated TTS playback
-      voiceManager.playVoiceOutput(lastMessage.content);
+      voiceManager.playVoiceOutput(lastMessage.content, lastMessage.id);
     }
   }, [messages, isSending, voiceManager]);
 

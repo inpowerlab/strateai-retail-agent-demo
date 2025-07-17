@@ -8,9 +8,6 @@ enabled = true
 enabled = true
 
 [functions.chat-assistant]
-verify_jwt = true
-
-[functions.audit-logger]
 verify_jwt = false
 
 [functions.openai-tts]

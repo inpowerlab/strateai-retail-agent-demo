@@ -79,7 +79,7 @@ export const MobileChatButton: React.FC<MobileChatButtonProps> = ({
       lastBotMessageIdRef.current = lastMessage.id;
       
       // Use voice manager for coordinated TTS playback
-      voiceManager.playVoiceOutput(lastMessage.content);
+      voiceManager.playVoiceOutput(lastMessage.content, lastMessage.id);
     }
   }, [messages, isSending, isOpen, voiceManager]);
 
