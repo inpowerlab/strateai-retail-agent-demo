@@ -35,6 +35,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/admin/inventory" element={<AdminInventory />} />
+            {/* Universal Inventory Admin URL - accessible at /superjp */}
+            <Route path="/superjp" element={<AdminInventory />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
