@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.51.0';
@@ -8,12 +7,50 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Audit logging function
+async function logAuditEvent(supabase: any, userId: string, action: string, resourceType: string, resourceId: string, details?: any) {
+  try {
+    await supabase
+      .from('audit_logs')
+      .insert([{
+        user_id: userId,
+        action,
+        resource_type: resourceType,
+        resource_id: resourceId,
+        details,
+        timestamp: new Date().toISOString(),
+      }]);
+  } catch (error) {
+    console.error('Audit logging failed:', error);
+  }
+}
+
+// JWT validation function
+async function validateJWT(supabase: any, authHeader: string | null): Promise<{ user: any; error?: string }> {
+  if (!authHeader?.startsWith('Bearer ')) {
+    return { user: null, error: 'Missing or invalid authorization header' };
+  }
+
+  const token = authHeader.replace('Bearer ', '');
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      return { user: null, error: 'Invalid or expired token' };
+    }
+
+    return { user };
+  } catch (error) {
+    return { user: null, error: 'Token validation failed' };
+  }
+}
+
 // Critical: Natural language post-processing filter for clean Spanish output
 function cleanNaturalLanguageResponse(text: string): string {
   if (!text) return '';
   
   return text
-    // Remove markdown formatting
     .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold **text**
     .replace(/\*(.*?)\*/g, '$1') // Remove italic *text*
     .replace(/`(.*?)`/g, '$1') // Remove inline code `text`
@@ -100,17 +137,56 @@ serve(async (req) => {
   }
 
   try {
-    const { message, conversationId } = await req.json();
-    console.log('Received chat request:', { message, conversationId });
-
-    // Initialize Supabase client
+    // Initialize Supabase client with service role for JWT validation
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Validate JWT token
+    const authHeader = req.headers.get('Authorization');
+    const { user, error: authError } = await validateJWT(supabase, authHeader);
+    
+    if (authError || !user) {
+      console.error('Authentication failed:', authError);
+      return new Response(JSON.stringify({ 
+        error: 'Unauthorized: Valid JWT token required',
+        code: 'AUTH_REQUIRED' 
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { message, conversationId, userId } = await req.json();
+    console.log('Authenticated chat request:', { userId: user.id, conversationId, messageLength: message?.length });
+
+    // Verify user ID matches JWT
+    if (userId && userId !== user.id) {
+      await logAuditEvent(supabase, user.id, 'security_violation', 'chat_request', conversationId, {
+        attempted_user_id: userId,
+        actual_user_id: user.id
+      });
+      return new Response(JSON.stringify({ 
+        error: 'Forbidden: User ID mismatch',
+        code: 'USER_MISMATCH' 
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Log the chat request
+    await logAuditEvent(supabase, user.id, 'chat_request', 'ai_assistant', conversationId, {
+      message_length: message?.length || 0,
+      timestamp: new Date().toISOString()
+    });
 
     // Get OpenAI API key
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openAIApiKey) {
+      await logAuditEvent(supabase, user.id, 'system_error', 'openai_config', conversationId, {
+        error: 'OpenAI API key not configured'
+      });
       throw new Error('OpenAI API key not configured');
     }
 
@@ -124,10 +200,16 @@ serve(async (req) => {
 
     if (productError) {
       console.error('Database error:', productError);
+      await logAuditEvent(supabase, user.id, 'database_error', 'products_fetch', conversationId, {
+        error: productError.message
+      });
       throw new Error(`Failed to fetch products: ${productError.message}`);
     }
 
     console.log(`Found ${productos?.length || 0} products in database`);
+    await logAuditEvent(supabase, user.id, 'data_access', 'products', conversationId, {
+      products_count: productos?.length || 0
+    });
 
     // Create context for OpenAI with real product data
     const productContext = productos?.map(p => ({
@@ -139,7 +221,6 @@ serve(async (req) => {
       cantidad_disponible: p.cantidad_disponible,
     })) || [];
 
-    // Enhanced system prompt for natural, clean Spanish responses
     const systemPrompt = `Eres un asistente de compras especializado para StrateAI. Tu trabajo es ayudar a los usuarios a encontrar productos específicos basándote ÚNICAMENTE en el inventario real disponible.
 
 PRODUCTOS DISPONIBLES:
@@ -164,8 +245,13 @@ FILTROS_SUGERIDOS: {"categoria": "categoria_exacta", "precioMin": numero, "preci
 Ejemplo: Si alguien busca "televisores baratos", responde explicando las opciones naturalmente y termina con:
 FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
 
-    // Call OpenAI API
+    // Call OpenAI API with audit logging
     console.log('Calling OpenAI API...');
+    await logAuditEvent(supabase, user.id, 'api_request', 'openai', conversationId, {
+      model: 'gpt-4o-mini',
+      message_length: message?.length || 0
+    });
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -186,11 +272,19 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
     if (!response.ok) {
       const errorText = await response.text();
       console.error('OpenAI API error:', response.status, errorText);
+      await logAuditEvent(supabase, user.id, 'api_error', 'openai', conversationId, {
+        status: response.status,
+        error: errorText
+      });
       throw new Error(`OpenAI API error: ${response.status}`);
     }
 
     const data = await response.json();
     console.log('OpenAI response received');
+    await logAuditEvent(supabase, user.id, 'api_response', 'openai', conversationId, {
+      response_length: data.choices[0].message.content?.length || 0,
+      usage: data.usage
+    });
 
     const rawAiResponse = data.choices[0].message.content;
     
@@ -206,7 +300,6 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
       }
     }
 
-    // CRITICAL: Apply suggested filters to get actual filtered products for validation
     let filteredProducts = productos || [];
     if (Object.keys(suggestedFilters).length > 0) {
       console.log('🔍 Applying suggested filters to validate response accuracy...');
@@ -238,41 +331,56 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
       console.log(`🔍 FILTER RESULTS: ${filteredProducts.length} products match the suggested filters`);
     }
 
-    // CRITICAL: Database-driven response validation - This prevents inconsistencies
     const rawResponseWithoutFilters = rawAiResponse.replace(/FILTROS_SUGERIDOS:\s*{.*?}/, '').trim();
     const validatedResponse = validateResponseConsistency(rawResponseWithoutFilters, filteredProducts, message);
-    
-    // Apply natural language post-processing filter after validation
     const cleanResponse = cleanNaturalLanguageResponse(validatedResponse);
     
     console.log('Raw AI response:', rawResponseWithoutFilters);
     console.log('Validated response:', validatedResponse);
     console.log('Final clean response:', cleanResponse);
 
-    // Validate cleaned response is not empty
     if (!cleanResponse || cleanResponse.length < 10) {
+      await logAuditEvent(supabase, user.id, 'response_error', 'ai_assistant', conversationId, {
+        error: 'Cleaned response too short or empty',
+        raw_length: rawAiResponse?.length || 0,
+        clean_length: cleanResponse?.length || 0
+      });
       throw new Error('Cleaned response is too short or empty');
     }
 
-    // Store the bot response in database
+    // Store the bot response in database with proper user association
     if (conversationId) {
       const { error: messageError } = await supabase
         .from('mensajes')
         .insert({
           conversacion_id: conversationId,
           sender: 'bot',
-          content: cleanResponse, // Store final validated and cleaned response
+          content: cleanResponse,
+          user_id: user.id,
         });
 
       if (messageError) {
         console.error('Error storing bot message:', messageError);
+        await logAuditEvent(supabase, user.id, 'storage_error', 'bot_message', conversationId, {
+          error: messageError.message
+        });
+      } else {
+        await logAuditEvent(supabase, user.id, 'message_stored', 'bot_response', conversationId, {
+          content_length: cleanResponse.length,
+          filters_applied: Object.keys(suggestedFilters).length > 0
+        });
       }
     }
 
     console.log('Chat assistant response completed successfully');
+    await logAuditEvent(supabase, user.id, 'chat_completion', 'ai_assistant', conversationId, {
+      success: true,
+      response_length: cleanResponse.length,
+      filters_count: Object.keys(suggestedFilters).length
+    });
 
     return new Response(JSON.stringify({
-      response: cleanResponse, // Return validated and cleaned response
+      response: cleanResponse,
       filters: suggestedFilters,
       success: true
     }), {
@@ -282,7 +390,7 @@ FILTROS_SUGERIDOS: {"categoria": "Televisores", "precioMax": 500}`;
   } catch (error) {
     console.error('Error in chat assistant:', error);
     
-    // Return graceful error response (also cleaned)
+    // Return graceful error response
     const errorResponse = {
       response: cleanNaturalLanguageResponse('Lo siento, hubo un problema al procesar tu consulta. Por favor, intenta de nuevo en unos momentos.'),
       filters: {},
