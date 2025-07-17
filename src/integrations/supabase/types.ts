@@ -14,6 +14,111 @@ export type Database = {
   }
   public: {
     Tables: {
+      code_generation_logs: {
+        Row: {
+          code_hash: string | null
+          code_length: number | null
+          created_at: string
+          error_message: string | null
+          eslint_errors: Json | null
+          eslint_warnings: Json | null
+          framework: string | null
+          generated_at: string
+          id: string
+          language: string | null
+          openai_latency_ms: number | null
+          prompt: string | null
+          request_count: number | null
+          security_issues: Json | null
+          success: boolean
+          test_code_errors: Json | null
+          test_code_generated: boolean | null
+          test_code_valid: boolean | null
+          total_processing_ms: number | null
+          typescript_errors: Json | null
+          typescript_valid: boolean | null
+          user_id: string | null
+          user_ip: unknown | null
+        }
+        Insert: {
+          code_hash?: string | null
+          code_length?: number | null
+          created_at?: string
+          error_message?: string | null
+          eslint_errors?: Json | null
+          eslint_warnings?: Json | null
+          framework?: string | null
+          generated_at?: string
+          id?: string
+          language?: string | null
+          openai_latency_ms?: number | null
+          prompt?: string | null
+          request_count?: number | null
+          security_issues?: Json | null
+          success?: boolean
+          test_code_errors?: Json | null
+          test_code_generated?: boolean | null
+          test_code_valid?: boolean | null
+          total_processing_ms?: number | null
+          typescript_errors?: Json | null
+          typescript_valid?: boolean | null
+          user_id?: string | null
+          user_ip?: unknown | null
+        }
+        Update: {
+          code_hash?: string | null
+          code_length?: number | null
+          created_at?: string
+          error_message?: string | null
+          eslint_errors?: Json | null
+          eslint_warnings?: Json | null
+          framework?: string | null
+          generated_at?: string
+          id?: string
+          language?: string | null
+          openai_latency_ms?: number | null
+          prompt?: string | null
+          request_count?: number | null
+          security_issues?: Json | null
+          success?: boolean
+          test_code_errors?: Json | null
+          test_code_generated?: boolean | null
+          test_code_valid?: boolean | null
+          total_processing_ms?: number | null
+          typescript_errors?: Json | null
+          typescript_valid?: boolean | null
+          user_id?: string | null
+          user_ip?: unknown | null
+        }
+        Relationships: []
+      }
+      code_generation_rate_limits: {
+        Row: {
+          created_at: string
+          id: string
+          identifier: string
+          request_count: number | null
+          updated_at: string
+          window_start: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          identifier: string
+          request_count?: number | null
+          updated_at?: string
+          window_start?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          identifier?: string
+          request_count?: number | null
+          updated_at?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       conversaciones: {
         Row: {
           id: string
