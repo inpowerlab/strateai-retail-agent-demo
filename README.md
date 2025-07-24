@@ -1,22 +1,16 @@
-# Welcome to your Lovable project
+# StrateAI Retail Agent Demo
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/55d54fd1-292a-4044-adc4-b457c6389e29
+**URL**: https://strateai-retail-demo.netlify.app
 
 ## How can I edit this code?
 
 There are several ways of editing your application.
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/55d54fd1-292a-4044-adc4-b457c6389e29) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
 **Use your preferred IDE**
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+If you want to work locally using your own IDE, you can clone this repo and push changes.
 
 The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
@@ -59,15 +53,19 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+- Supabase
 
 ## How can I deploy this project?
 
-Simply open [Lovable](https://lovable.dev/projects/55d54fd1-292a-4044-adc4-b457c6389e29) and click on Share -> Publish.
+You can deploy this project to any static hosting service like:
 
-## Can I connect a custom domain to my Lovable project?
+- Netlify
+- Vercel
+- GitHub Pages
+- AWS S3 + CloudFront
 
-Yes, you can!
+Simply build the project with `npm run build` and deploy the `dist` folder.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Can I connect a custom domain?
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+Yes, you can connect a custom domain through your hosting provider's domain settings.
